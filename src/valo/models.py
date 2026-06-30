@@ -1,5 +1,5 @@
 """SQLAlchemy models — see PROJECT_V1.md §4 for the full data model spec."""
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from enum import Enum as PyEnum
 
 from sqlalchemy import (
@@ -41,7 +41,7 @@ class Target(Base):
     valuation_aggregate: Mapped[str] = mapped_column(String(50), nullable=False)
     fund: Mapped[str | None] = mapped_column(String(100))
     notes: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
 
     anchors: Mapped[list["TargetAnchor"]] = relationship(back_populates="target")
     runs: Mapped[list["ValuationRun"]] = relationship(back_populates="target")
@@ -102,7 +102,7 @@ class ValuationRun(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     target_id: Mapped[int] = mapped_column(ForeignKey("targets.id"), nullable=False)
-    run_date: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    run_date: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
     mode: Mapped[str] = mapped_column(String(1), nullable=False)
     aggregate: Mapped[str] = mapped_column(String(50), nullable=False)
     median_now: Mapped[float | None] = mapped_column(Float)
@@ -145,4 +145,4 @@ class Transaction(Base):
     implied_multiple: Mapped[float | None] = mapped_column(Float)
     source_doc_url: Mapped[str | None] = mapped_column(String(1000))
     notes: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
