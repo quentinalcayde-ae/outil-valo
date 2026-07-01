@@ -37,7 +37,7 @@ def update(tx_id: int, body: TransactionUpdate, session: Session = Depends(get_s
     try:
         return update_transaction(session, tx_id, **{k: v for k, v in body.model_dump().items() if v is not None})
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.delete("/{tx_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -45,4 +45,4 @@ def delete(tx_id: int, session: Session = Depends(get_session)):
     try:
         delete_transaction(session, tx_id)
     except ValueError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+        raise HTTPException(status_code=404, detail=str(exc)) from exc

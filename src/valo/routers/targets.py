@@ -1,10 +1,16 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from valo.dependencies import get_session
-from valo.schemas import AnchorCreate, AnchorOut, TargetCreate, TargetOut
+from valo.dependencies import get_llm, get_session
+from valo.providers.base import LLMProvider, TargetContext
+from valo.schemas import (
+    AnchorOut,
+    SuggestRequest,
+    SuggestResponse,
+    TargetCreate,
+    TargetOut,
+)
 from valo.storage.repositories import (
-    create_anchor,
     create_target,
     get_anchors,
     get_target,
@@ -32,13 +38,35 @@ def get_one(target_id: int, session: Session = Depends(get_session)):
     return target
 
 
-@router.post("/{target_id}/anchors", response_model=AnchorOut, status_code=status.HTTP_201_CREATED)
-def add_anchor(target_id: int, body: AnchorCreate, session: Session = Depends(get_session)):
-    if get_target(session, target_id) is None:
-        raise HTTPException(status_code=404, detail="Cible introuvable.")
-    return create_anchor(session, target_id, **body.model_dump())
-
-
 @router.get("/{target_id}/anchors", response_model=list[AnchorOut])
 def list_anchors(target_id: int, session: Session = Depends(get_session)):
     return get_anchors(session, target_id)
+
+
+@router.post("/{target_id}/suggest", response_model=SuggestResponse)
+def suggest(
+    target_id: int,
+    body: SuggestRequest,
+    session: Session = Depends(get_session),
+    llm: LLMProvider = Depends(get_llm),
+):
+    """Découverte LLM : propose comps cotés + transactions M&A (identité + rationale)."""
+    target = get_target(session, target_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail="Cible introuvable.")
+
+    ctx = TargetContext(
+        name=target.name,
+        sector=target.sector,
+        description=target.description,
+        is_recurring=target.is_recurring,
+        valuation_aggregate=target.valuation_aggregate,
+        aggregate_value=target.aggregate_value,
+        extra_tickers=[t.upper() for t in body.extra_tickers],
+    )
+    comps = llm.suggest_comps(ctx, n=body.n_comps)
+    txs = llm.suggest_transactions(ctx, n=body.n_transactions)
+    return SuggestResponse(
+        comps=[c.__dict__ for c in comps],
+        transactions=[t.__dict__ for t in txs],
+    )

@@ -1,5 +1,4 @@
 """CRUD repositories — toutes les opérations DB passent par ici, jamais par session directe."""
-from datetime import datetime
 
 from sqlalchemy.orm import Session
 
@@ -13,7 +12,6 @@ from valo.models import (
     ValuationRun,
 )
 from valo.providers.base import MarketSnapshot
-
 
 # ── Targets ─────────────────────────────────────────────────────────────────
 
@@ -143,11 +141,46 @@ def get_run(session: Session, run_id: int) -> ValuationRun | None:
     return session.get(ValuationRun, run_id)
 
 
-def add_run_comp(session: Session, run_id: int, snapshot_id: int, **kwargs) -> RunComp:
-    rc = RunComp(run_id=run_id, comp_snapshot_id=snapshot_id, **kwargs)
+def add_run_comp(
+    session: Session,
+    run_id: int,
+    comp_id: int,
+    snapshot_id: int | None = None,
+    **kwargs,
+) -> RunComp:
+    """Associe un comp (identité) au panel d'un run. Le snapshot est lié plus tard (execute)."""
+    rc = RunComp(run_id=run_id, comp_id=comp_id, comp_snapshot_id=snapshot_id, **kwargs)
     session.add(rc)
     session.flush()
     return rc
+
+
+def link_run_comp_snapshot(session: Session, run_comp_id: int, snapshot_id: int) -> RunComp:
+    """Attache le snapshot gelé effectivement utilisé (recherche financière à l'execute)."""
+    rc = session.get(RunComp, run_comp_id)
+    if rc is None:
+        raise ValueError(f"RunComp {run_comp_id} introuvable.")
+    rc.comp_snapshot_id = snapshot_id
+    session.flush()
+    return rc
+
+
+def set_anchor_market(
+    session: Session,
+    anchor_id: int,
+    m_market_entry: float,
+    basis: str,
+    source: str,
+) -> "TargetAnchor":
+    """Gèle l'ancre marché (calculée ou saisie) — MODE A."""
+    anchor = session.get(TargetAnchor, anchor_id)
+    if anchor is None:
+        raise ValueError(f"Ancre {anchor_id} introuvable.")
+    anchor.m_market_entry = m_market_entry
+    anchor.market_anchor_basis = basis
+    anchor.m_market_entry_source = source
+    session.flush()
+    return anchor
 
 
 def update_run_result(

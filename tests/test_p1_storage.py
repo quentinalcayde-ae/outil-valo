@@ -17,7 +17,6 @@ from valo.storage.repositories import (
     get_comp_by_ticker,
     get_latest_snapshot,
     insert_snapshot,
-    list_comps,
     list_targets,
     list_transactions,
     update_snapshot_recurring,
@@ -58,7 +57,7 @@ def test_create_and_list_target(session):
 
 def test_create_anchor(session):
     t = create_target(session, name="T", is_recurring=True, valuation_aggregate="arr")
-    anchor = create_anchor(
+    create_anchor(
         session, t.id,
         entry_date=date(2024, 1, 1),
         m_entry_aggregate=8.0,
@@ -90,7 +89,6 @@ def test_snapshot_immutable_on_new_insert(session):
     comp = create_comp(session, name="Adobe", ticker="ADBE", currency="USD", is_recurring=True)
     insert_snapshot(session, comp.id, _snap(market_cap=50e9))
     insert_snapshot(session, comp.id, _snap(market_cap=55e9))
-    snaps = list_comps(session)
     # latest snapshot doit être le second
     latest = get_latest_snapshot(session, comp.id)
     assert latest.market_cap == 55e9

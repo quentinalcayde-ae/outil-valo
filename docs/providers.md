@@ -1,44 +1,49 @@
 # Providers — interfaces et implémentations
 
-*Reflète `src/valo/providers/`. Voir PROJECT_V1.md §3 pour la spec.*
+*Reflète `src/valo/providers/`. Voir PROJECT_V1.md §3/§7.*
 
 ## MarketDataProvider
 
-Interface : `src/valo/providers/base.py`
+`src/valo/providers/base.py` :
 
 ```python
 class MarketDataProvider(ABC):
-    def fetch_snapshot(self, ticker: str) -> MarketSnapshot: ...
-    def suggest_comps(self, target_description: str) -> list[dict]: ...
+    def fetch_snapshot(self, ticker) -> MarketSnapshot: ...              # live
+    def fetch_historical_snapshot(self, ticker, as_of) -> MarketSnapshot: ...  # ancre marché
 ```
 
-**`MarketSnapshot`** — champs retournés : `ticker`, `fetched_at`, `market_cap`, `net_debt`, `cash`, `revenue_ltm`, `source_by_field`.
+`MarketSnapshot` : `ticker`, `fetched_at`, `market_cap`, `net_debt`, `cash`, `revenue_ltm`, `source_by_field`, `as_of_date` (rempli si historique).
 
-### YahooProvider (V1)
+### YahooProvider (V1) — `yahoo_provider.py`
 
-`src/valo/providers/yahoo_provider.py` — yfinance, réseau ouvert local.
+- `fetch_snapshot` : `yf.Ticker(t).info` → `net_debt = totalDebt - totalCash`, `revenue_ltm = totalRevenue`.
+- `fetch_historical_snapshot(ticker, as_of)` : **best-effort** pour l'ancre marché (MODE A).
+  - `market_cap` ≈ close historique (fenêtre ±7j) × `sharesOutstanding` courant.
+  - `net_debt` / `revenue_ltm` : états **trimestriels** (LTM = 4 trimestres) puis fallback **annuels** (profondeur ~4 ans) — les trimestriels ne remontent que ~5 trimestres.
+  - Lève `HistoricalDataUnavailable` si le prix à la date est introuvable (IPO postérieure…).
 
-- `fetch_snapshot` : appelle `yf.Ticker(ticker).info`, mappe les champs yfinance.
-  - `net_debt = totalDebt - totalCash` (peut être négatif = trésorerie nette).
-  - `revenue_ltm = totalRevenue`.
-- `suggest_comps` : non implémenté en P1 — sera branché sur LLM en P3.
-
-**Point de bascule V2** : remplacer `YahooProvider` par un provider Dealroom ou autre lib — l'interface `MarketDataProvider` reste stable.
+**Point de bascule V2** : provider payant (Dealroom…) derrière la même interface.
 
 ## LLMProvider
 
-Interface : `src/valo/providers/base.py`
+`src/valo/providers/base.py` — **découverte + extraction**, jamais source de chiffre en médiane :
 
 ```python
 class LLMProvider(ABC):
-    def extract_recurring(self, ticker: str, filing_text: str) -> RecurringExtraction: ...
+    def suggest_comps(self, ctx: TargetContext, n=8) -> list[CompSuggestion]: ...
+    def suggest_transactions(self, ctx: TargetContext, n=5) -> list[TransactionSuggestion]: ...
+    def extract_recurring(self, ticker, filing_text) -> RecurringExtraction: ...  # P4
 ```
 
-**`RecurringExtraction`** — champs : `ticker`, `recurring_value`, `recurring_basis_tag`, `source_excerpt`, `confidence`.
+- `CompSuggestion` : `name`, `ticker`, `rationale`, `sector`, `confidence` — **identité uniquement**.
+- `TransactionSuggestion` : `target_company`, `acquirer`, `tx_date`, `rationale`, `source_doc_url`, `implied_multiple` (**best-effort, « à vérifier »**).
+- `TargetContext` : contexte passé au LLM (`name`, `sector`, `description`, `is_recurring`, `valuation_aggregate`, `aggregate_value`, `extra_tickers`).
 
-- V1 : `OpenAIProvider` (P4).
-- V2 : `ClaudeProvider` slottable (même interface).
+### Implémentations
+
+- **`MockLLMProvider`** (`mock_llm.py`) — suggestions déterministes par secteur, **zéro réseau**. Utilisé en P3a et dans les tests (voir [feedback tests LLM]).
+- **`OpenAIProvider`** (P3b) — même interface, modèle configurable (défaut petit modèle), prompts versionnés. Activé quand `OPENAI_API_KEY` est présent (`dependencies.get_llm`).
 
 ## Storage
 
-Interface : `src/valo/storage/base.py` — voir [`data-model.md`](data-model.md).
+`storage/base.py` + `SQLiteStore` — voir [`data-model.md`](data-model.md).

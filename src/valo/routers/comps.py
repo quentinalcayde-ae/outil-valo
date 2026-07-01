@@ -52,7 +52,7 @@ def refresh_snapshot(
     try:
         snap = provider.fetch_snapshot(ticker)
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Erreur acquisition Yahoo : {exc}")
+        raise HTTPException(status_code=502, detail=f"Erreur acquisition Yahoo : {exc}") from exc
     return insert_snapshot(session, comp.id, snap)
 
 

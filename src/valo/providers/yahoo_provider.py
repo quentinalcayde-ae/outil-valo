@@ -1,10 +1,14 @@
-"""YahooProvider — yfinance pinné, fallback sur données manquantes."""
-from datetime import datetime
+"""YahooProvider — yfinance pinné. Données live + reconstitution historique (ancre marché)."""
+from datetime import date, datetime, timedelta
 
 import yfinance as yf
 
 from valo.logging import logger
 from valo.providers.base import MarketDataProvider, MarketSnapshot
+
+
+class HistoricalDataUnavailable(Exception):
+    """Levée quand yfinance ne couvre pas la date demandée (IPO postérieure, etc.)."""
 
 
 class YahooProvider(MarketDataProvider):
@@ -39,6 +43,106 @@ class YahooProvider(MarketDataProvider):
             source_by_field=source,
         )
 
-    def suggest_comps(self, target_description: str) -> list[dict]:
-        # P3 — panel suggestion via LLM ; placeholder pour P1
-        raise NotImplementedError("suggest_comps requires LLM integration (P3)")
+    def fetch_historical_snapshot(self, ticker: str, as_of: date) -> MarketSnapshot:
+        """
+        Reconstitue une capi/EV/revenue à une date passée (best-effort) :
+          - market_cap ≈ close historique × shares outstanding (courant, faute de mieux)
+          - net_debt  ← bilan trimestriel le plus proche ≤ as_of
+          - revenue   ← income statement le plus proche ≤ as_of (annualisé si trimestriel)
+        Lève HistoricalDataUnavailable si le prix à la date est introuvable.
+        """
+        log = logger.bind(ticker=ticker, provider="yahoo", as_of=str(as_of))
+        tk = yf.Ticker(ticker)
+
+        # Prix historique autour de la date (fenêtre ±7 jours)
+        start = as_of - timedelta(days=7)
+        end = as_of + timedelta(days=7)
+        try:
+            hist = tk.history(start=start.isoformat(), end=end.isoformat())
+        except Exception as exc:
+            raise HistoricalDataUnavailable(f"{ticker}: history() a échoué ({exc})") from exc
+        if hist is None or hist.empty:
+            raise HistoricalDataUnavailable(f"{ticker}: aucun prix autour de {as_of} (IPO postérieure ?)")
+        close = float(hist["Close"].iloc[-1])
+
+        info = tk.info
+        shares = info.get("sharesOutstanding")
+        market_cap = close * shares if shares else None
+
+        net_debt = self._nearest_net_debt(tk, as_of)
+        revenue = self._nearest_revenue(tk, as_of)
+
+        source = {
+            "market_cap": f"yfinance:hist_close({as_of})×sharesOutstanding",
+            "net_debt": "yfinance:quarterly_balance_sheet~as_of",
+            "revenue_ltm": "yfinance:income_stmt~as_of",
+        }
+        log.info("yahoo_historical_ok", market_cap=market_cap, close=close)
+        return MarketSnapshot(
+            ticker=ticker,
+            fetched_at=datetime.utcnow(),
+            market_cap=market_cap,
+            net_debt=net_debt,
+            cash=None,
+            revenue_ltm=revenue,
+            source_by_field=source,
+            as_of_date=as_of,
+        )
+
+    @staticmethod
+    def _nearest_net_debt(tk, as_of: date) -> float | None:
+        """Dette nette au bilan le plus proche ≤ as_of : trimestriel puis annuel (profondeur)."""
+        debt_labels = ["Total Debt", "Long Term Debt And Capital Lease Obligation", "Long Term Debt"]
+        cash_labels = ["Cash And Cash Equivalents", "Cash Cash Equivalents And Short Term Investments", "Cash"]
+        for getter in ("quarterly_balance_sheet", "balance_sheet"):
+            try:
+                bs = getattr(tk, getter)
+            except Exception:
+                continue
+            if bs is None or bs.empty:
+                continue
+            cols = [c for c in bs.columns if c.date() <= as_of]
+            if not cols:
+                continue
+            col = max(cols)
+            debt = _row(bs, col, debt_labels)
+            cash = _row(bs, col, cash_labels)
+            if debt is not None:
+                return debt - (cash or 0)
+        return None
+
+    @staticmethod
+    def _nearest_revenue(tk, as_of: date) -> float | None:
+        """Revenue LTM : somme 4 trimestres si dispo, sinon revenue annuel le plus proche ≤ as_of."""
+        labels = ["Total Revenue", "Revenue", "Operating Revenue"]
+        # 1) Trimestriel (LTM = somme 4 derniers trimestres)
+        try:
+            fin = tk.quarterly_income_stmt
+            if fin is not None and not fin.empty:
+                cols = sorted([c for c in fin.columns if c.date() <= as_of], reverse=True)
+                quarters = [_row(fin, c, labels) for c in cols[:4]]
+                quarters = [q for q in quarters if q is not None]
+                if len(quarters) == 4:
+                    return sum(quarters)
+        except Exception:
+            pass
+        # 2) Fallback annuel (revenue plein exercice ≈ LTM)
+        try:
+            fin = tk.income_stmt
+            if fin is not None and not fin.empty:
+                cols = [c for c in fin.columns if c.date() <= as_of]
+                if cols:
+                    return _row(fin, max(cols), labels)
+        except Exception:
+            pass
+        return None
+
+
+def _row(df, col, candidates: list[str]) -> float | None:
+    """Récupère la 1re ligne existante parmi candidates pour une colonne donnée."""
+    for name in candidates:
+        if name in df.index:
+            val = df.loc[name, col]
+            if val is not None and not (isinstance(val, float) and val != val):  # NaN check
+                return float(val)
+    return None

@@ -1,4 +1,10 @@
-"""Service d'orchestration d'un run de valo — voir PROJECT_V1.md §5."""
+"""Service d'orchestration d'un run de valo — voir PROJECT_V1.md §5.
+
+Flux : le panel (identité des comps) est fixé en amont. À l'execute, on fait la
+recherche financière (snapshot live par comp), on gèle les snapshots, on calcule
+la médiane sur les inclus, on applique la calibration delta, on génère l'Excel.
+L'ancre marché (m_market_entry) doit avoir été calculée/confirmée au préalable.
+"""
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -6,73 +12,88 @@ from sqlalchemy.orm import Session
 
 from valo.method.excel_export import export_excel
 from valo.method.valuation import ValuationInput, ValuationResult, run_valuation
-from valo.models import CompSnapshot, RunComp, TargetAnchor, ValuationRun
-from valo.storage.repositories import get_anchors, get_run, update_run_result
+from valo.models import CompSnapshot, Target, TargetAnchor, ValuationRun
+from valo.providers.base import MarketDataProvider
+from valo.storage.repositories import (
+    get_anchors,
+    get_run,
+    insert_snapshot,
+    update_run_result,
+)
 
 
 @dataclass
 class RunContext:
-    """Données résolues pour affichage / audit après le run."""
     run: ValuationRun
     result: ValuationResult
-    included_comps: list[dict]   # [{ticker, ev, aggregate, multiple}, ...]
+    included_comps: list[dict]
     excluded_comps: list[dict]
     target_aggregate_value: float
     excel_path: str | None
 
 
 def _pick_aggregate(snap: CompSnapshot, aggregate_key: str) -> float | None:
-    """Sélectionne la valeur d'agrégat du comp selon le type de run."""
     if aggregate_key in ("arr", "recurring"):
         return snap.recurring_value
     if aggregate_key == "revenue":
         return snap.revenue_ltm
-    # Pour les autres (ebitda, …) : non encore supporté en P1 data — retourne None
     return None
 
 
 def execute_run(
     session: Session,
     run_id: int,
-    target_aggregate_value: float,
+    target_aggregate_value: float | None = None,
+    provider: MarketDataProvider | None = None,
     output_dir: str = "exports",
 ) -> RunContext:
-    """
-    Orchestre un run complet :
-    1. Charge le panel (run_comps.included=True uniquement pour la médiane)
-    2. Calcule EV/agrégat homogène pour chaque comp inclus
-    3. Lance run_valuation() — formule calibration delta
-    4. Persiste le résultat dans valuation_runs
-    5. Génère le fichier Excel formula-driven
-    """
     run = get_run(session, run_id)
     if run is None:
         raise ValueError(f"Run {run_id} introuvable.")
 
+    target: Target | None = session.get(Target, run.target_id)
     anchors = get_anchors(session, run.target_id)
     if not anchors:
-        raise ValueError(f"Aucune ancre trouvée pour la cible {run.target_id}. Créer un TargetAnchor d'abord.")
+        raise ValueError("Aucune ancre pour cette cible — créer/ancrer d'abord.")
     anchor: TargetAnchor = anchors[-1]
+    if anchor.m_market_entry is None:
+        raise ValueError("Ancre marché non calculée — appeler /runs/{id}/anchor avant execute.")
 
-    run_comps: list[RunComp] = run.run_comps
-    included_multiples = []
-    included_comps = []
-    excluded_comps = []
+    if target_aggregate_value is None:
+        target_aggregate_value = target.aggregate_value if target else None
+    if not target_aggregate_value or target_aggregate_value <= 0:
+        raise ValueError("Agrégat cible manquant — renseigner target.aggregate_value ou le passer au run.")
 
-    for rc in run_comps:
-        snap: CompSnapshot = rc.comp_snapshot
-        comp_name = snap.comp.name if snap.comp else f"comp_{snap.comp_id}"
+    included_multiples: list[float] = []
+    included_comps: list[dict] = []
+    excluded_comps: list[dict] = []
+
+    for rc in run.run_comps:  # type: RunComp
+        # Recherche financière : snapshot gelé s'il existe, sinon fetch live
+        snap: CompSnapshot | None = rc.comp_snapshot
+        if snap is None:
+            if provider is None:
+                raise ValueError(
+                    f"Comp {rc.comp.ticker if rc.comp else rc.comp_id} sans snapshot et aucun provider fourni."
+                )
+            market = provider.fetch_snapshot(rc.comp.ticker)
+            snap = insert_snapshot(session, rc.comp_id, market)
+            rc.comp_snapshot = snap  # met à jour la relation (pas seulement le FK)
+            session.flush()
+
         agg_value = _pick_aggregate(snap, run.aggregate)
-
-        if snap.ev is None or agg_value is None or agg_value <= 0:
-            multiple = None
-        else:
+        multiple = None
+        if snap.ev is not None and agg_value and agg_value > 0:
             multiple = snap.ev / agg_value
 
         entry = {
-            "ticker": snap.comp.ticker if snap.comp else "?",
-            "name": comp_name,
+            "ticker": rc.comp.ticker if rc.comp else "?",
+            "name": rc.comp.name if rc.comp else f"comp_{rc.comp_id}",
             "ev": snap.ev,
+            "market_cap": snap.market_cap,
+            "net_debt": snap.net_debt,
+            "revenue_ltm": snap.revenue_ltm,
+            "recurring_value": snap.recurring_value,
             "aggregate_value": agg_value,
             "multiple": multiple,
             "included": rc.included,
@@ -101,10 +122,8 @@ def execute_run(
     )
     result = run_valuation(inp)
 
-    # EV cible = M_final × agrégat cible
     result_ev = result.m_final * target_aggregate_value
-    # Equity = EV (la dette nette de la cible est traitée en dehors du mark)
-    result_equity = result_ev
+    result_equity = result_ev  # bridge dette nette traité hors mark (voir PROJECT_V1 §5)
 
     Path(output_dir).mkdir(exist_ok=True)
     excel_path = export_excel(

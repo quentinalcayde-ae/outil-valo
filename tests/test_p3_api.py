@@ -1,5 +1,4 @@
 """Tests P3 — endpoints FastAPI."""
-from datetime import UTC, date, datetime
 
 import pytest
 from fastapi.testclient import TestClient
@@ -52,17 +51,6 @@ def test_list_targets_empty(client):
 def test_get_target_not_found(client):
     r = client.get('/targets/999')
     assert r.status_code == 404
-
-
-def test_create_anchor(client):
-    t = client.post('/targets', json={'name': 'T', 'is_recurring': True, 'valuation_aggregate': 'revenue'}).json()
-    r = client.post(f'/targets/{t["id"]}/anchors', json={
-        'entry_date': '2023-06-30',
-        'm_entry_aggregate': 8.0,
-        'm_market_entry': 10.0,
-    })
-    assert r.status_code == 201
-    assert r.json()['m_entry_aggregate'] == 8.0
 
 
 # ── Comps ─────────────────────────────────────────────────────────────────────

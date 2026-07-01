@@ -2,9 +2,17 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from valo.dependencies import get_session, get_yahoo
+from valo.method.anchor import compute_market_anchor
 from valo.method.service import execute_run
 from valo.providers.yahoo_provider import YahooProvider
-from valo.schemas import PanelCreate, RunCompsPatch, RunExecuteIn, RunOut
+from valo.schemas import (
+    AnchorComputeIn,
+    AnchorProposalOut,
+    PanelCreate,
+    RunCompsPatch,
+    RunExecuteIn,
+    RunOut,
+)
 from valo.storage.repositories import (
     add_run_comp,
     create_anchor,
@@ -12,42 +20,30 @@ from valo.storage.repositories import (
     create_run,
     get_anchors,
     get_comp_by_ticker,
-    get_latest_snapshot,
     get_run,
-    insert_snapshot,
+    get_target,
+    set_anchor_market,
 )
-from valo.storage.repositories import get_target
 
 router = APIRouter(prefix="/runs", tags=["runs"])
 
 
 @router.post("/panel", response_model=RunOut, status_code=status.HTTP_201_CREATED)
-def create_panel(
-    target_id: int,
-    body: PanelCreate,
-    session: Session = Depends(get_session),
-    provider: YahooProvider = Depends(get_yahoo),
-):
+def create_panel(target_id: int, body: PanelCreate, session: Session = Depends(get_session)):
     """
-    Crée un run + associe le panel soumis par l'utilisateur.
-    Pour chaque ticker :
-      - crée le comp s'il n'existe pas
-      - rafraîchit le snapshot si aucun n'existe
-      - ajoute au panel du run (tous inclus par défaut)
+    Crée l'ancre d'entrée (m_market_entry restera à calculer), le run, et associe
+    le panel de comps VALIDÉS (identité seulement — aucune recherche financière ici).
     """
     target = get_target(session, target_id)
     if target is None:
         raise HTTPException(status_code=404, detail="Cible introuvable.")
 
-    # Crée l'ancre si fournie et qu'il n'en existe pas encore
-    anchors = get_anchors(session, target_id)
-    if not anchors and body.anchor is None:
-        raise HTTPException(
-            status_code=422,
-            detail="Aucune ancre sur cette cible. Fournir `anchor` dans le body.",
-        )
-    if body.anchor is not None:
-        create_anchor(session, target_id, **body.anchor.model_dump())
+    create_anchor(
+        session, target_id,
+        entry_date=body.anchor.entry_date,
+        entry_round=body.anchor.entry_round,
+        m_entry_aggregate=body.anchor.m_entry_aggregate,
+    )
 
     run = create_run(
         session,
@@ -57,42 +53,19 @@ def create_panel(
         retention_factor=body.retention_factor,
     )
 
-    errors = []
     for pc in body.comps:
         ticker = pc.ticker.upper()
         comp = get_comp_by_ticker(session, ticker)
         if comp is None:
-            try:
-                info = provider.fetch_snapshot(ticker)
-                comp = create_comp(
-                    session, name=ticker, ticker=ticker,
-                    currency="USD", is_recurring=True,
-                )
-                snap = insert_snapshot(session, comp.id, info)
-            except Exception as exc:
-                errors.append(f"{ticker}: {exc}")
-                continue
-        else:
-            snap = get_latest_snapshot(session, comp.id)
-            if snap is None:
-                try:
-                    info = provider.fetch_snapshot(ticker)
-                    snap = insert_snapshot(session, comp.id, info)
-                except Exception as exc:
-                    errors.append(f"{ticker}: {exc}")
-                    continue
-
-        add_run_comp(session, run_id=run.id, snapshot_id=snap.id,
+            comp = create_comp(
+                session, name=pc.name or ticker, ticker=ticker,
+                currency="USD", is_recurring=target.is_recurring,
+            )
+        add_run_comp(session, run_id=run.id, comp_id=comp.id,
                      included=True, relevance_note=pc.relevance_note)
 
     session.flush()
-
-    run = get_run(session, run.id)
-    if errors:
-        # On retourne quand même le run avec un warning dans le header — non bloquant
-        pass
-
-    return _enrich_run(run)
+    return _enrich_run(get_run(session, run.id))
 
 
 @router.get("/{run_id}", response_model=RunOut)
@@ -110,14 +83,11 @@ def patch_comps(run_id: int, body: RunCompsPatch, session: Session = Depends(get
     if run is None:
         raise HTTPException(status_code=404, detail="Run introuvable.")
 
-    snap_map = {rc.comp_snapshot_id: rc for rc in run.run_comps}
+    by_id = {rc.id: rc for rc in run.run_comps}
     for patch in body.comps:
-        rc = snap_map.get(patch.comp_snapshot_id)
+        rc = by_id.get(patch.run_comp_id)
         if rc is None:
-            raise HTTPException(
-                status_code=404,
-                detail=f"comp_snapshot_id {patch.comp_snapshot_id} absent de ce run.",
-            )
+            raise HTTPException(status_code=404, detail=f"run_comp_id {patch.run_comp_id} absent de ce run.")
         rc.included = patch.included
         rc.exclusion_reason = patch.exclusion_reason
         if patch.relevance_note is not None:
@@ -127,37 +97,86 @@ def patch_comps(run_id: int, body: RunCompsPatch, session: Session = Depends(get
     return _enrich_run(get_run(session, run_id))
 
 
+@router.post("/{run_id}/anchor", response_model=AnchorProposalOut)
+def compute_anchor(
+    run_id: int,
+    body: AnchorComputeIn,
+    session: Session = Depends(get_session),
+    provider: YahooProvider = Depends(get_yahoo),
+):
+    """
+    Fixe m_market_entry (MODE A). manual_value → override (cas ARR / correction).
+    Sinon calcul auto EV/Revenue historique sur le panel inclus (best-effort).
+    L'ancre n'est gelée que si une valeur est obtenue (auto ou manuelle).
+    """
+    run = get_run(session, run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run introuvable.")
+    anchors = get_anchors(session, run.target_id)
+    if not anchors:
+        raise HTTPException(status_code=422, detail="Aucune ancre d'entrée — créer le panel d'abord.")
+    anchor = anchors[-1]
+
+    # Override manuel (cas ARR ou correction humaine)
+    if body.manual_value is not None:
+        basis = body.basis or "arr"
+        set_anchor_market(session, anchor.id, body.manual_value, basis, "manual")
+        return AnchorProposalOut(
+            basis=basis, entry_date=anchor.entry_date, m_market_entry=body.manual_value,
+            n_available=0, details=[], source="manual",
+        )
+
+    # Calcul auto sur le panel inclus
+    tickers = [rc.comp.ticker for rc in run.run_comps if rc.included and rc.comp]
+    proposal = compute_market_anchor(provider, tickers, anchor.entry_date)
+
+    if proposal.m_market_entry is not None:
+        set_anchor_market(session, anchor.id, proposal.m_market_entry, proposal.basis, "computed")
+
+    return AnchorProposalOut(
+        basis=proposal.basis,
+        entry_date=proposal.entry_date,
+        m_market_entry=proposal.m_market_entry,
+        n_available=proposal.n_available,
+        details=[d.__dict__ for d in proposal.details],
+        source="computed" if proposal.m_market_entry is not None else "pending",
+    )
+
+
 @router.post("/{run_id}/execute", response_model=RunOut)
 def execute(
     run_id: int,
     body: RunExecuteIn,
     session: Session = Depends(get_session),
+    provider: YahooProvider = Depends(get_yahoo),
 ):
-    """Lance le calcul de valo et génère l'Excel."""
+    """Recherche financière (snapshots live des comps validés) + calcul de valo + Excel."""
     run = get_run(session, run_id)
     if run is None:
         raise HTTPException(status_code=404, detail="Run introuvable.")
     try:
-        ctx = execute_run(session, run_id, target_aggregate_value=body.target_aggregate_value)
+        ctx = execute_run(
+            session, run_id,
+            target_aggregate_value=body.target_aggregate_value,
+            provider=provider,
+        )
     except ValueError as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     return _enrich_run(ctx.run)
 
 
 def _enrich_run(run) -> dict:
-    """Construit le RunOut avec snapshots et comps imbriqués."""
     run_comps_out = []
     for rc in run.run_comps:
-        snap = rc.comp_snapshot
-        comp = snap.comp
         run_comps_out.append({
             "id": rc.id,
+            "comp_id": rc.comp_id,
             "comp_snapshot_id": rc.comp_snapshot_id,
             "included": rc.included,
             "exclusion_reason": rc.exclusion_reason,
             "relevance_note": rc.relevance_note,
-            "snapshot": snap,
-            "comp": comp,
+            "comp": rc.comp,
+            "snapshot": rc.comp_snapshot,
         })
     return {
         "id": run.id,

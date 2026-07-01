@@ -4,23 +4,18 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-
 # ── Targets ──────────────────────────────────────────────────────────────────
 
 class TargetCreate(BaseModel):
     name: str
     sector: str | None = None
     is_recurring: bool
-    valuation_aggregate: str  # arr / revenue / ebitda / …
+    valuation_aggregate: str
     fund: str | None = None
+    aggregate_value: float | None = None  # chiffre clé : agrégat courant (€)
+    net_debt: float | None = None
+    description: str | None = None         # pitch pour la découverte LLM
     notes: str | None = None
-
-
-class AnchorCreate(BaseModel):
-    entry_date: date
-    entry_round: str | None = None
-    m_entry_aggregate: float
-    m_market_entry: float
 
 
 class TargetOut(BaseModel):
@@ -30,6 +25,9 @@ class TargetOut(BaseModel):
     is_recurring: bool
     valuation_aggregate: str
     fund: str | None
+    aggregate_value: float | None
+    net_debt: float | None
+    description: str | None
     notes: str | None
     created_at: datetime
 
@@ -42,12 +40,45 @@ class AnchorOut(BaseModel):
     entry_date: date
     entry_round: str | None
     m_entry_aggregate: float
-    m_market_entry: float
+    m_market_entry: float | None
+    market_anchor_basis: str | None
+    m_market_entry_source: str
 
     model_config = {"from_attributes": True}
 
 
-# ── Comps ─────────────────────────────────────────────────────────────────────
+# ── Découverte (LLM) ──────────────────────────────────────────────────────────
+
+class SuggestRequest(BaseModel):
+    extra_tickers: list[str] = []
+    n_comps: int = 8
+    n_transactions: int = 5
+
+
+class CompSuggestionOut(BaseModel):
+    name: str
+    ticker: str
+    rationale: str
+    sector: str | None = None
+    confidence: str = "medium"
+
+
+class TransactionSuggestionOut(BaseModel):
+    target_company: str
+    acquirer: str | None
+    tx_date: date | None
+    rationale: str
+    source_doc_url: str | None = None
+    implied_multiple: float | None = None
+    sector: str | None = None
+
+
+class SuggestResponse(BaseModel):
+    comps: list[CompSuggestionOut]
+    transactions: list[TransactionSuggestionOut]
+
+
+# ── Comps / snapshots ─────────────────────────────────────────────────────────
 
 class CompCreate(BaseModel):
     name: str
@@ -87,25 +118,31 @@ class SnapshotOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
-# ── Panel ─────────────────────────────────────────────────────────────────────
+# ── Panel / run ───────────────────────────────────────────────────────────────
 
 class PanelCompIn(BaseModel):
     ticker: str
+    name: str | None = None
     relevance_note: str | None = None
 
 
+class AnchorEntryIn(BaseModel):
+    """Ancres du tour saisies au panel — m_market_entry sera calculé à l'étape /anchor."""
+    entry_date: date
+    entry_round: str | None = None
+    m_entry_aggregate: float
+
+
 class PanelCreate(BaseModel):
-    """Crée un run et associe le panel de comps soumis par l'utilisateur."""
     comps: list[PanelCompIn] = Field(min_length=1)
     mode: str = Field(default="A", pattern="^[AB]$")
-    aggregate: str  # arr / revenue / ebitda / …
+    aggregate: str
     retention_factor: float = 1.0
-    target_aggregate_value: float = Field(gt=0, description="Valeur agrégat cible (€)")
-    anchor: AnchorCreate | None = None  # si pas encore d'ancre sur la cible
+    anchor: AnchorEntryIn
 
 
 class RunCompPatch(BaseModel):
-    comp_snapshot_id: int
+    run_comp_id: int
     included: bool
     exclusion_reason: str | None = None
     relevance_note: str | None = None
@@ -115,16 +152,43 @@ class RunCompsPatch(BaseModel):
     comps: list[RunCompPatch]
 
 
-# ── Runs ──────────────────────────────────────────────────────────────────────
+class AnchorComputeIn(BaseModel):
+    """Calcule ou fixe m_market_entry. Si manual_value fourni → override (cas ARR / correction)."""
+    manual_value: float | None = None
+    basis: str | None = None  # revenue par défaut (auto) ; 'arr' si multiple manuel d'ARR
+
+
+class AnchorCompDetailOut(BaseModel):
+    ticker: str
+    ev: float | None
+    revenue_ltm: float | None
+    multiple: float | None
+    available: bool
+    note: str
+
+
+class AnchorProposalOut(BaseModel):
+    basis: str
+    entry_date: date
+    m_market_entry: float | None
+    n_available: int
+    details: list[AnchorCompDetailOut]
+    source: str  # computed / manual
+
+
+class RunExecuteIn(BaseModel):
+    target_aggregate_value: float | None = None  # défaut : target.aggregate_value
+
 
 class RunCompOut(BaseModel):
     id: int
-    comp_snapshot_id: int
+    comp_id: int
+    comp_snapshot_id: int | None
     included: bool
     exclusion_reason: str | None
     relevance_note: str | None
-    snapshot: SnapshotOut
     comp: CompOut
+    snapshot: SnapshotOut | None = None
 
     model_config = {"from_attributes": True}
 
@@ -146,13 +210,10 @@ class RunOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class RunExecuteIn(BaseModel):
-    target_aggregate_value: float = Field(gt=0)
-
-
 # ── Transactions M&A ──────────────────────────────────────────────────────────
 
 class TransactionCreate(BaseModel):
+    target_id: int | None = None
     target_company: str
     acquirer: str | None = None
     tx_date: date | None = None
@@ -161,6 +222,8 @@ class TransactionCreate(BaseModel):
     price: float | None = None
     implied_multiple: float | None = None
     source_doc_url: str | None = None
+    origin: str = "manual"
+    status: str = "validated"
     notes: str | None = None
 
 
@@ -173,11 +236,13 @@ class TransactionUpdate(BaseModel):
     price: float | None = None
     implied_multiple: float | None = None
     source_doc_url: str | None = None
+    status: str | None = None
     notes: str | None = None
 
 
 class TransactionOut(BaseModel):
     id: int
+    target_id: int | None
     target_company: str
     acquirer: str | None
     tx_date: date | None
@@ -186,6 +251,8 @@ class TransactionOut(BaseModel):
     price: float | None
     implied_multiple: float | None
     source_doc_url: str | None
+    origin: str
+    status: str
     notes: str | None
     created_at: datetime
 

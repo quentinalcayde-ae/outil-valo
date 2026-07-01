@@ -5,6 +5,7 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+from valo.method.service import execute_run
 from valo.models import Base
 from valo.providers.base import MarketSnapshot
 from valo.storage.repositories import (
@@ -15,7 +16,6 @@ from valo.storage.repositories import (
     create_target,
     insert_snapshot,
 )
-from valo.method.service import execute_run
 
 
 @pytest.fixture
@@ -59,7 +59,7 @@ def _setup_run(session, mode="A", aggregate="revenue", retention_factor=1.0):
     for ticker, mc, nd, rev in comps_data:
         comp = create_comp(session, name=ticker, ticker=ticker, currency="USD", is_recurring=True)
         snap = insert_snapshot(session, comp.id, _make_snap(ticker, mc, nd, rev))
-        add_run_comp(session, run_id=run.id, snapshot_id=snap.id, included=True)
+        add_run_comp(session, run_id=run.id, comp_id=comp.id, snapshot_id=snap.id, included=True)
     session.flush()
     return run.id, target.id
 
@@ -99,12 +99,12 @@ def test_execute_run_excluded_comp(session, tmp_path):
     # Comp inclus : multiple 11x
     comp1 = create_comp(session, name="AAA", ticker="AAA1", currency="USD", is_recurring=True)
     snap1 = insert_snapshot(session, comp1.id, _make_snap("AAA1", 110e6, 0, 10e6))
-    add_run_comp(session, run_id=run.id, snapshot_id=snap1.id, included=True)
+    add_run_comp(session, run_id=run.id, comp_id=comp1.id, snapshot_id=snap1.id, included=True)
 
     # Comp exclu : multiple 5x (outlier distressed)
     comp2 = create_comp(session, name="EXCL", ticker="EXCL", currency="USD", is_recurring=True)
     snap2 = insert_snapshot(session, comp2.id, _make_snap("EXCL", 50e6, 0, 10e6))
-    add_run_comp(session, run_id=run.id, snapshot_id=snap2.id, included=False,
+    add_run_comp(session, run_id=run.id, comp_id=comp2.id, snapshot_id=snap2.id, included=False,
                  exclusion_reason="Distressed")
     session.flush()
 

@@ -46,6 +46,15 @@ Entrées via `ValuationInput` : `mode`, `m_entry_aggregate`, `m_market_entry`, `
 Feuille **Panel** : comps inclus avec formule `=EV/agrégat` dans chaque cellule multiple, ligne `=MEDIAN(...)`.
 Feuille **Valo** : toutes les cellules clés sont des formules Excel (pas de valeurs figées) — auditable et recalculable à l'ouverture.
 
+### `method/anchor.py` — ancre marché (MODE A)
+
+`compute_market_anchor(provider, tickers, entry_date)` → `AnchorProposal` :
+- Pour chaque comp du panel inclus : `fetch_historical_snapshot` → EV/Revenue à `entry_date`.
+- Médiane des multiples disponibles = `m_market_entry` proposé. `basis = "revenue"`.
+- Comps sans donnée (IPO postérieure…) signalés (`available=False`), exclus du calcul.
+- **Cas ARR** : pas d'ARR historique → override manuel du multiple (`source=manual`, `basis=arr`) ou ancre sur EV/Revenue. Le ratio de dérive étant sans unité, le mark reste valide.
+- Valeur toujours **surchargeable** (ancre gelée à vie).
+
 ## MODE A vs MODE B
 
 | MODE | Usage | Comportement |

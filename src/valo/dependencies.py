@@ -1,10 +1,11 @@
-"""FastAPI dependencies — session DB + providers."""
+"""FastAPI dependencies — session DB + providers (marché & LLM)."""
 from collections.abc import Generator
 
-from fastapi import Depends
 from sqlalchemy.orm import Session
 
 from valo.config import settings
+from valo.providers.base import LLMProvider
+from valo.providers.mock_llm import MockLLMProvider
 from valo.providers.yahoo_provider import YahooProvider
 from valo.storage.sqlite_store import SQLiteStore
 
@@ -18,3 +19,9 @@ def get_session() -> Generator[Session, None, None]:
 
 def get_yahoo() -> YahooProvider:
     return YahooProvider()
+
+
+def get_llm() -> LLMProvider:
+    """Provider LLM. P3a : Mock (déterministe, sans clé). P3b : OpenAIProvider si clé présente."""
+    # TODO P3b : if settings.openai_api_key: return OpenAIProvider(...)
+    return MockLLMProvider()

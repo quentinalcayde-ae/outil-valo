@@ -14,6 +14,14 @@
 | `run_comps` | Panel d'un run — `included` (bool), `exclusion_reason` ; exclus conservés hors médiane |
 | `transactions` | Transactions M&A — cross-check qualitatif, jamais dans la médiane |
 
+## Recadrage P3a (1er juillet 2026)
+
+- `targets` : + `aggregate_value`, `net_debt`, `description` (chiffres clés saisis + contexte découverte LLM).
+- `target_anchors` : `m_market_entry` devient **nullable** (calculé à l'étape `/anchor`) ; + `market_anchor_basis` (revenue/arr…), `m_market_entry_source` (computed/manual).
+- `transactions` : + `target_id`, `origin` (llm/manual), `status` (proposed/validated).
+- `run_comps` : + `comp_id` (identité fixée au panel) ; `comp_snapshot_id` devient **nullable**, rempli à l'`execute` (recherche financière). Le snapshot gelé utilisé dans la médiane reste tracé pour l'audit.
+- Nouvelles fonctions repo : `link_run_comp_snapshot`, `set_anchor_market`. Migration : `migrations/002_recadrage_decouverte.sql`.
+
 ## Règles invariantes
 
 - **`comp_snapshots` est append-only.** `insert_snapshot()` crée toujours un nouveau row. Ne jamais appeler `update()` sur un snapshot existant (sauf `recurring_value` après validation humaine).
