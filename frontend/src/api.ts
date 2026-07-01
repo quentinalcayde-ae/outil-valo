@@ -11,17 +11,34 @@ export interface Target {
   is_recurring: boolean
   valuation_aggregate: string
   fund: string | null
+  aggregate_value: number | null
+  net_debt: number | null
+  description: string | null
   notes: string | null
   created_at: string
 }
 
-export interface Anchor {
-  id: number
-  target_id: number
-  entry_date: string
-  entry_round: string | null
-  m_entry_aggregate: number
-  m_market_entry: number
+export interface CompSuggestion {
+  name: string
+  ticker: string
+  rationale: string
+  sector: string | null
+  confidence: string
+}
+
+export interface TransactionSuggestion {
+  target_company: string
+  acquirer: string | null
+  tx_date: string | null
+  rationale: string
+  source_doc_url: string | null
+  implied_multiple: number | null
+  sector: string | null
+}
+
+export interface SuggestResponse {
+  comps: CompSuggestion[]
+  transactions: TransactionSuggestion[]
 }
 
 export interface Comp {
@@ -51,12 +68,13 @@ export interface Snapshot {
 
 export interface RunComp {
   id: number
-  comp_snapshot_id: number
+  comp_id: number
+  comp_snapshot_id: number | null
   included: boolean
   exclusion_reason: string | null
   relevance_note: string | null
-  snapshot: Snapshot
   comp: Comp
+  snapshot: Snapshot | null
 }
 
 export interface Run {
@@ -74,8 +92,27 @@ export interface Run {
   run_comps: RunComp[]
 }
 
+export interface AnchorCompDetail {
+  ticker: string
+  ev: number | null
+  revenue_ltm: number | null
+  multiple: number | null
+  available: boolean
+  note: string
+}
+
+export interface AnchorProposal {
+  basis: string
+  entry_date: string
+  m_market_entry: number | null
+  n_available: number
+  details: AnchorCompDetail[]
+  source: string // computed / manual / pending
+}
+
 export interface Transaction {
   id: number
+  target_id: number | null
   target_company: string
   acquirer: string | null
   tx_date: string | null
@@ -84,58 +121,69 @@ export interface Transaction {
   price: number | null
   implied_multiple: number | null
   source_doc_url: string | null
+  origin: string
+  status: string
   notes: string | null
   created_at: string
 }
 
-// ── Targets ──────────────────────────────────────────────────────────────────
+// ── Targets & découverte ──────────────────────────────────────────────────────
 
 export const getTargets = () => http.get<Target[]>('/targets').then(r => r.data)
 export const getTarget = (id: number) => http.get<Target>(`/targets/${id}`).then(r => r.data)
-export const createTarget = (data: Omit<Target, 'id' | 'created_at'>) =>
+export const createTarget = (data: Partial<Target>) =>
   http.post<Target>('/targets', data).then(r => r.data)
 
+export const suggest = (targetId: number, body: { extra_tickers?: string[]; n_comps?: number; n_transactions?: number }) =>
+  http.post<SuggestResponse>(`/targets/${targetId}/suggest`, body).then(r => r.data)
+
+export interface Anchor {
+  id: number
+  target_id: number
+  entry_date: string
+  entry_round: string | null
+  m_entry_aggregate: number
+  m_market_entry: number | null
+  market_anchor_basis: string | null
+  m_market_entry_source: string
+}
 export const getAnchors = (targetId: number) =>
   http.get<Anchor[]>(`/targets/${targetId}/anchors`).then(r => r.data)
-export const createAnchor = (targetId: number, data: Omit<Anchor, 'id' | 'target_id'>) =>
-  http.post<Anchor>(`/targets/${targetId}/anchors`, data).then(r => r.data)
 
-// ── Comps ─────────────────────────────────────────────────────────────────────
+// ── Runs : panel → anchor → execute ─────────────────────────────────────────────
 
-export const getComps = () => http.get<Comp[]>('/comps').then(r => r.data)
-export const createComp = (data: Omit<Comp, 'id'>) =>
-  http.post<Comp>('/comps', data).then(r => r.data)
-export const refreshSnapshot = (ticker: string) =>
-  http.post<Snapshot>(`/comps/${ticker}/refresh`).then(r => r.data)
+export interface PanelBody {
+  comps: { ticker: string; name?: string; relevance_note?: string | null }[]
+  mode: 'A' | 'B'
+  aggregate: string
+  retention_factor: number
+  anchor: { entry_date: string; entry_round?: string | null; m_entry_aggregate: number }
+}
 
-// ── Runs ──────────────────────────────────────────────────────────────────────
-
-export const createPanel = (targetId: number, data: object) =>
-  http.post<Run>(`/runs/panel?target_id=${targetId}`, data).then(r => r.data)
-export const getRun = (runId: number) =>
-  http.get<Run>(`/runs/${runId}`).then(r => r.data)
+export const createPanel = (targetId: number, body: PanelBody) =>
+  http.post<Run>(`/runs/panel?target_id=${targetId}`, body).then(r => r.data)
+export const getRun = (runId: number) => http.get<Run>(`/runs/${runId}`).then(r => r.data)
 export const patchRunComps = (runId: number, comps: object[]) =>
   http.patch<Run>(`/runs/${runId}/comps`, { comps }).then(r => r.data)
-export const executeRun = (runId: number, targetAggregateValue: number) =>
-  http.post<Run>(`/runs/${runId}/execute`, { target_aggregate_value: targetAggregateValue }).then(r => r.data)
+export const computeAnchor = (runId: number, body: { manual_value?: number; basis?: string }) =>
+  http.post<AnchorProposal>(`/runs/${runId}/anchor`, body).then(r => r.data)
+export const executeRun = (runId: number, targetAggregateValue?: number) =>
+  http.post<Run>(`/runs/${runId}/execute`, { target_aggregate_value: targetAggregateValue ?? null }).then(r => r.data)
 
 // ── Transactions ──────────────────────────────────────────────────────────────
 
 export const getTransactions = () => http.get<Transaction[]>('/transactions').then(r => r.data)
-export const createTransaction = (data: Omit<Transaction, 'id' | 'created_at'>) =>
+export const createTransaction = (data: Partial<Transaction>) =>
   http.post<Transaction>('/transactions', data).then(r => r.data)
 export const updateTransaction = (id: number, data: Partial<Transaction>) =>
   http.patch<Transaction>(`/transactions/${id}`, data).then(r => r.data)
-export const deleteTransaction = (id: number) =>
-  http.delete(`/transactions/${id}`)
+export const deleteTransaction = (id: number) => http.delete(`/transactions/${id}`)
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 export function fmtM(v: number | null): string {
-  if (v == null) return '—'
-  return `${v.toFixed(2)}x`
+  return v == null ? '—' : `${v.toFixed(2)}x`
 }
-
 export function fmtBn(v: number | null): string {
   if (v == null) return '—'
   if (Math.abs(v) >= 1e9) return `${(v / 1e9).toFixed(1)}B`
