@@ -13,7 +13,8 @@ class SQLiteStore(Storage):
         os.makedirs("data", exist_ok=True)
         self.engine = create_engine(database_url, connect_args={"check_same_thread": False})
         Base.metadata.create_all(self.engine)
-        self._Session = sessionmaker(bind=self.engine, autoflush=False, autocommit=False)
+        self._Session = sessionmaker(bind=self.engine, autoflush=False, autocommit=False,
+                                     expire_on_commit=False)
 
     @contextmanager
     def get_session(self) -> Session:
