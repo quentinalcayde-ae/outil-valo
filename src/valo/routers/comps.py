@@ -18,6 +18,25 @@ from valo.storage.repositories import (
 router = APIRouter(prefix="/comps", tags=["comps"])
 
 
+class ResolveRequest(BaseModel):
+    tickers: list[str]
+
+
+class ResolveItem(BaseModel):
+    ticker: str
+    valid: bool
+    name: str | None
+
+
+@router.post("/resolve", response_model=list[ResolveItem])
+def resolve(
+    body: ResolveRequest,
+    provider: YahooProvider = Depends(get_yahoo),
+):
+    """Résout chaque ticker → nom réel yfinance + validité (garde-fou anti-collision LLM)."""
+    return [provider.resolve_ticker(t) for t in body.tickers if t.strip()]
+
+
 @router.post("", response_model=CompOut, status_code=status.HTTP_201_CREATED)
 def create(body: CompCreate, session: Session = Depends(get_session)):
     existing = get_comp_by_ticker(session, body.ticker)

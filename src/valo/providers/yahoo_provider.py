@@ -43,6 +43,17 @@ class YahooProvider(MarketDataProvider):
             source_by_field=source,
         )
 
+    def resolve_ticker(self, ticker: str) -> dict:
+        """Résout un ticker → {ticker, valid, name}. Garde-fou anti-collision/hallucination LLM."""
+        ticker = ticker.strip().upper()
+        try:
+            info = yf.Ticker(ticker).info
+            name = info.get("longName") or info.get("shortName")
+            has_price = bool(info.get("regularMarketPrice") or info.get("currentPrice") or info.get("marketCap"))
+            return {"ticker": ticker, "valid": bool(name and has_price), "name": name}
+        except Exception:
+            return {"ticker": ticker, "valid": False, "name": None}
+
     def fetch_historical_snapshot(self, ticker: str, as_of: date) -> MarketSnapshot:
         """
         Reconstitue une capi/EV/revenue à une date passée (best-effort) :

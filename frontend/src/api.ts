@@ -137,6 +137,10 @@ export const createTarget = (data: Partial<Target>) =>
 export const suggest = (targetId: number, body: { extra_tickers?: string[]; n_comps?: number; n_transactions?: number }) =>
   http.post<SuggestResponse>(`/targets/${targetId}/suggest`, body).then(r => r.data)
 
+export interface ResolveItem { ticker: string; valid: boolean; name: string | null }
+export const resolveTickers = (tickers: string[]) =>
+  http.post<ResolveItem[]>('/comps/resolve', { tickers }).then(r => r.data)
+
 export interface Anchor {
   id: number
   target_id: number
