@@ -1,10 +1,11 @@
-"""Point d'entrée FastAPI — voir PROJECT_V1.md §7 pour les endpoints."""
+"""Point d'entrée FastAPI — voir PROJECT_V1.md §7."""
 import sentry_sdk
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from valo.config import settings
 from valo.logging import configure_logging
+from valo.routers import comps, runs, targets, transactions
 
 configure_logging()
 
@@ -20,15 +21,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(targets.router)
+app.include_router(comps.router)
+app.include_router(runs.router)
+app.include_router(transactions.router)
+
 
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok"}
-
-
-# Routes à brancher en P3 :
-# from valo.routers import targets, comps, runs, transactions
-# app.include_router(targets.router)
-# app.include_router(comps.router)
-# app.include_router(runs.router)
-# app.include_router(transactions.router)
