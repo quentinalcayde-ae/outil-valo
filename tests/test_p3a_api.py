@@ -9,10 +9,11 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from valo.dependencies import get_session, get_yahoo
+from valo.dependencies import get_llm, get_session, get_yahoo
 from valo.main import app
 from valo.models import Base
 from valo.providers.base import MarketDataProvider, MarketSnapshot
+from valo.providers.mock_llm import MockLLMProvider
 
 
 class FakeMarketProvider(MarketDataProvider):
@@ -54,6 +55,7 @@ def client(tmp_path):
 
     app.dependency_overrides[get_session] = override_session
     app.dependency_overrides[get_yahoo] = lambda: FakeMarketProvider()
+    app.dependency_overrides[get_llm] = lambda: MockLLMProvider()  # déterministe, zéro appel réseau
     yield TestClient(app)
     app.dependency_overrides.clear()
 

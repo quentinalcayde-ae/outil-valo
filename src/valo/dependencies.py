@@ -22,6 +22,8 @@ def get_yahoo() -> YahooProvider:
 
 
 def get_llm() -> LLMProvider:
-    """Provider LLM. P3a : Mock (déterministe, sans clé). P3b : OpenAIProvider si clé présente."""
-    # TODO P3b : if settings.openai_api_key: return OpenAIProvider(...)
+    """OpenAIProvider si OPENAI_API_KEY présente, sinon MockLLMProvider (fallback sans clé)."""
+    if settings.openai_api_key:
+        from valo.providers.openai_provider import OpenAIProvider
+        return OpenAIProvider(api_key=settings.openai_api_key, model=settings.openai_model)
     return MockLLMProvider()

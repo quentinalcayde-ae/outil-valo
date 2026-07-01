@@ -76,7 +76,22 @@ def execute_run(
                 raise ValueError(
                     f"Comp {rc.comp.ticker if rc.comp else rc.comp_id} sans snapshot et aucun provider fourni."
                 )
-            market = provider.fetch_snapshot(rc.comp.ticker)
+            try:
+                market = provider.fetch_snapshot(rc.comp.ticker)
+            except Exception as exc:
+                # Ticker introuvable/invalide (ex. proposition LLM douteuse) → exclu, run préservé
+                rc.included = False
+                rc.exclusion_reason = f"[auto] acquisition impossible : {exc}"
+                session.flush()
+                excluded_comps.append({
+                    "ticker": rc.comp.ticker if rc.comp else "?",
+                    "name": rc.comp.name if rc.comp else f"comp_{rc.comp_id}",
+                    "ev": None, "market_cap": None, "net_debt": None, "revenue_ltm": None,
+                    "recurring_value": None, "aggregate_value": None, "multiple": None,
+                    "included": False, "exclusion_reason": rc.exclusion_reason,
+                    "relevance_note": rc.relevance_note,
+                })
+                continue
             snap = insert_snapshot(session, rc.comp_id, market)
             rc.comp_snapshot = snap  # met à jour la relation (pas seulement le FK)
             session.flush()
