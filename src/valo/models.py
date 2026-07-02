@@ -42,6 +42,7 @@ class Target(Base):
     # Chiffres clés saisis à la création (contexte découverte LLM + calcul valo)
     aggregate_value: Mapped[float | None] = mapped_column(Float)  # ex. ARR courant (€)
     net_debt: Mapped[float | None] = mapped_column(Float)
+    growth_now: Mapped[float | None] = mapped_column(Float)  # croissance actuelle de la cible (décimal)
     description: Mapped[str | None] = mapped_column(Text)  # pitch pour la découverte LLM
     # Dernière découverte LLM mémorisée {comps:[...], transactions:[...]} — évite de re-appeler
     # le LLM à chaque nouveau run tant que le panel convient.
@@ -68,6 +69,8 @@ class TargetAnchor(Base):
     market_anchor_basis: Mapped[str | None] = mapped_column(String(50))
     # computed (yfinance historique) / manual (override ou cas ARR)
     m_market_entry_source: Mapped[str] = mapped_column(String(20), default="computed")
+    entry_growth: Mapped[float | None] = mapped_column(Float)         # croissance cible au tour (saisie)
+    entry_panel_growth: Mapped[float | None] = mapped_column(Float)   # médiane croissance panel au tour (calculée)
 
     target: Mapped["Target"] = relationship(back_populates="anchors")
 
@@ -97,6 +100,7 @@ class CompSnapshot(Base):
     net_debt: Mapped[float | None] = mapped_column(Float)
     cash: Mapped[float | None] = mapped_column(Float)
     revenue_ltm: Mapped[float | None] = mapped_column(Float)
+    revenue_growth: Mapped[float | None] = mapped_column(Float)  # croissance YoY (décimal, trailing)
     recurring_value: Mapped[float | None] = mapped_column(Float)
     source_by_field: Mapped[dict | None] = mapped_column(JSON)
 
@@ -117,7 +121,8 @@ class ValuationRun(Base):
     mode: Mapped[str] = mapped_column(String(1), nullable=False)
     aggregate: Mapped[str] = mapped_column(String(50), nullable=False)
     median_now: Mapped[float | None] = mapped_column(Float)
-    retention_factor: Mapped[float | None] = mapped_column(Float)
+    retention_factor: Mapped[float | None] = mapped_column(Float)  # hérité (non utilisé, ancien mult.)
+    other_deltas: Mapped[float | None] = mapped_column(Float)      # ajustements société additifs (tours)
     m_final: Mapped[float | None] = mapped_column(Float)
     result_ev: Mapped[float | None] = mapped_column(Float)
     result_equity: Mapped[float | None] = mapped_column(Float)

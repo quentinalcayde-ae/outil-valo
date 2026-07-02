@@ -51,15 +51,18 @@ def create_panel(target_id: int, body: PanelCreate, session: Session = Depends(g
             a.entry_date = body.anchor.entry_date
             a.entry_round = body.anchor.entry_round
             a.m_entry_aggregate = body.anchor.m_entry_aggregate
+            a.entry_growth = body.anchor.entry_growth
             # entrée modifiée → l'ancre marché devra être recalculée
             a.m_market_entry = None
             a.market_anchor_basis = None
+            a.entry_panel_growth = None
         else:
             create_anchor(
                 session, target_id,
                 entry_date=body.anchor.entry_date,
                 entry_round=body.anchor.entry_round,
                 m_entry_aggregate=body.anchor.m_entry_aggregate,
+                entry_growth=body.anchor.entry_growth,
             )
 
     run = create_run(
@@ -67,7 +70,7 @@ def create_panel(target_id: int, body: PanelCreate, session: Session = Depends(g
         target_id=target_id,
         mode=body.mode,
         aggregate=body.aggregate,
-        retention_factor=body.retention_factor,
+        other_deltas=body.other_deltas,
     )
 
     for pc in body.comps:
@@ -163,7 +166,8 @@ def compute_anchor(
     proposal = compute_market_anchor(provider, tickers, anchor.entry_date)
 
     if proposal.m_market_entry is not None:
-        set_anchor_market(session, anchor.id, proposal.m_market_entry, proposal.basis, "computed")
+        set_anchor_market(session, anchor.id, proposal.m_market_entry, proposal.basis, "computed",
+                          entry_panel_growth=proposal.entry_panel_growth)
 
     return AnchorProposalOut(
         basis=proposal.basis,

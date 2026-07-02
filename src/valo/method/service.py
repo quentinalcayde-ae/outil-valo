@@ -74,6 +74,7 @@ def execute_run(
     comp_basis = (anchor.market_anchor_basis or run.aggregate) if delta_mode else run.aggregate
 
     included_multiples: list[float] = []
+    included_growths: list[float | None] = []
     included_comps: list[dict] = []
     excluded_comps: list[dict] = []
 
@@ -120,6 +121,7 @@ def execute_run(
             "recurring_value": snap.recurring_value,
             "aggregate_value": agg_value,
             "multiple": multiple,
+            "revenue_growth": snap.revenue_growth,
             "included": rc.included,
             "exclusion_reason": rc.exclusion_reason,
             "relevance_note": rc.relevance_note,
@@ -127,6 +129,7 @@ def execute_run(
 
         if rc.included and multiple is not None:
             included_multiples.append(multiple)
+            included_growths.append(snap.revenue_growth)
             included_comps.append(entry)
         else:
             if rc.included and multiple is None:
@@ -146,14 +149,20 @@ def execute_run(
     inp = ValuationInput(
         mode=run.mode,
         comp_multiples=included_multiples,
+        comp_growths=included_growths,
         m_entry_aggregate=anchor.m_entry_aggregate if delta_mode else None,
         m_market_entry=anchor.m_market_entry if delta_mode else None,
-        retention_factor=run.retention_factor or 1.0,
+        target_growth_now=target.growth_now if target else None,
+        target_growth_entry=anchor.entry_growth if delta_mode else None,
+        entry_panel_growth=anchor.entry_panel_growth if delta_mode else None,
+        other_deltas=run.other_deltas or 0.0,
     )
     result = run_valuation(inp)
 
     result_ev = result.m_final * target_aggregate_value
-    result_equity = result_ev  # bridge dette nette traité hors mark (voir PROJECT_V1 §5)
+    # Bridge equity : on retire la dette nette de la cible (net cash → augmente l'equity)
+    net_debt = (target.net_debt if target else None) or 0.0
+    result_equity = result_ev - net_debt
 
     Path(output_dir).mkdir(exist_ok=True)
     excel_path = export_excel(
@@ -164,6 +173,8 @@ def execute_run(
         excluded_comps=excluded_comps,
         target_aggregate_value=target_aggregate_value,
         result_ev=result_ev,
+        net_debt=net_debt,
+        result_equity=result_equity,
         comp_basis=comp_basis,
         output_dir=output_dir,
     )
@@ -172,7 +183,6 @@ def execute_run(
         session,
         run_id=run_id,
         median_now=result.median_now,
-        retention_factor=result.retention_factor,
         m_final=result.m_final,
         result_ev=result_ev,
         result_equity=result_equity,

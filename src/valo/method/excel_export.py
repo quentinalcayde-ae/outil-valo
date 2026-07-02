@@ -33,12 +33,15 @@ def export_excel(
     excluded_comps: list[dict],
     target_aggregate_value: float,
     result_ev: float,
+    net_debt: float = 0.0,
+    result_equity: float | None = None,
     comp_basis: str | None = None,
     output_dir: str = "exports",
 ) -> str:
     wb = Workbook()
     median_ref = _build_comps_sheet(wb, run, included_comps, excluded_comps, comp_basis or run.aggregate)
-    _build_synthese_sheet(wb, run, anchor, result, target_aggregate_value, median_ref, comp_basis or run.aggregate)
+    _build_synthese_sheet(wb, run, anchor, result, target_aggregate_value, median_ref,
+                          comp_basis or run.aggregate, net_debt)
 
     # Ordonne : Synthèse en premier
     wb.move_sheet("Synthèse", -(len(wb.sheetnames) - 1))
@@ -107,11 +110,12 @@ def _build_comps_sheet(wb, run, included, excluded, agg) -> str:
     return f"Comparables!G{median_row}"
 
 
-def _build_synthese_sheet(wb, run, anchor, result, target_aggregate_value, median_ref: str, comp_basis: str):
+def _build_synthese_sheet(wb, run, anchor, result, target_aggregate_value, median_ref: str,
+                          comp_basis: str, net_debt: float):
     ws = wb.create_sheet("Synthèse")
-    ws.column_dimensions["A"].width = 40
+    ws.column_dimensions["A"].width = 42
     ws.column_dimensions["B"].width = 18
-    ws.column_dimensions["C"].width = 34
+    ws.column_dimensions["C"].width = 36
 
     def line(r, label, value=None, formula=None, fmt=None, note=None, bold=False, fill=None):
         ws.cell(row=r, column=1, value=label)
@@ -130,52 +134,59 @@ def _build_synthese_sheet(wb, run, anchor, result, target_aggregate_value, media
     _header(ws, 1, 2, "Valeur")
     _header(ws, 1, 3, "Note")
 
-    calibrated = anchor is not None and anchor.m_market_entry is not None
+    beta_txt = result.beta if result.beta is not None else "n/a"
+    gap_txt = result.growth_gap if result.growth_gap is not None else "n/a"
+    growth_note = ("base trailing (yfinance) — β = prix d'un tour par point de croissance"
+                   if result.beta is not None
+                   else "croissance non exploitable (β indisponible) → terme omis")
 
-    if calibrated:
-        line(2, "── Ancres tour d'entrée ──", fill=CLR_SECTION, bold=True)
+    if result.calibrated:
+        line(2, "── Ancre tour d'entrée ──", fill=CLR_SECTION, bold=True)
         line(3, "Date du tour", str(anchor.entry_date))
         line(4, "Tour", anchor.entry_round or "")
-        line(5, f"M_entry (EV/{run.aggregate} au tour)", anchor.m_entry_aggregate, fmt='0.00"x"',
-             note="Multiple ancré, agrégat cible")
+        line(5, f"M_entry (EV/{run.aggregate} au tour)", anchor.m_entry_aggregate, fmt='0.00"x"')
         line(6, "M_market_entry (médiane marché au tour)", anchor.m_market_entry, fmt='0.00"x"',
-             note=f"basis={anchor.market_anchor_basis or '?'} · source={anchor.m_market_entry_source}")
+             note=f"basis={anchor.market_anchor_basis or '?'} · {anchor.m_market_entry_source}")
 
-        line(8, "── Marché actuel ──", fill=CLR_SECTION, bold=True)
-        line(9, f"Median_now (médiane panel, EV/{comp_basis})", formula=f"={median_ref}", fmt='0.00"x"',
-             note="Référence l'onglet Comparables")
-        line(10, "Drift ratio (median_now / m_market_entry)", formula="=B9/B6", fmt="0.000",
-             note=f"Ratio sans unité (EV/{comp_basis}) — dérive relative du marché")
-        line(11, "Facteur de rétention", run.retention_factor or 1.0, fmt="0.000",
-             note="1.0 si non récurrent ou neutre")
+        line(8, "── Base marché ──", fill=CLR_SECTION, bold=True)
+        line(9, f"Median_now (panel, EV/{comp_basis})", formula=f"={median_ref}", fmt='0.00"x"')
+        line(10, "Dérive marché (median_now / m_market_entry)", formula="=B9/B6", fmt="0.000")
+        line(11, "Base = M_entry × dérive", formula="=B5*B10", fmt='0.00"x"')
 
-        line(13, "── Résultat ──", fill=CLR_SECTION, bold=True)
-        line(14, f"M_final (EV/{run.aggregate} retenu)", formula="=B5*B10*B11", fmt='0.00"x"',
-             note=f"M_entry × drift × rétention [MODE {run.mode}]", bold=True, fill=CLR_RESULT)
-        line(15, f"Agrégat cible ({run.aggregate})", target_aggregate_value, fmt="#,##0",
-             note="Chiffre clé saisi sur la cible")
-        line(16, "EV cible (100 %)", formula="=B14*B15", fmt="#,##0",
-             note="EV = M_final × agrégat cible", bold=True, fill=CLR_RESULT)
-        footer = 18
-        method_note = "Méthode : IPEV déc. 2022 — calibration par maintien du delta."
+        line(13, "── Ajustement de croissance ──", fill=CLR_SECTION, bold=True)
+        line(14, "β (pente panel)", beta_txt, fmt='0.000"x/pt"', note=growth_note)
+        line(15, "Écart de croissance retenu (Δ, clampé)", gap_txt, fmt="0.0%")
+        line(16, "Δ croissance = β × écart", result.growth_delta, fmt='0.00"x"')
+        line(17, "Autres deltas société (marge/NRR/taille)", result.other_deltas, fmt='0.00"x"')
+
+        line(19, "── Résultat ──", fill=CLR_SECTION, bold=True)
+        line(20, f"M_final (EV/{run.aggregate} retenu)", formula="=B11+B16+B17", fmt='0.00"x"',
+             note=f"base + Δcroissance + autres deltas [MODE {run.mode}]", bold=True, fill=CLR_RESULT)
+        ev_row, method_note = 21, "Méthode : IPEV — maintien du delta + ajustement de croissance (β)."
     else:
-        # Valorisation directe par comparables (aucune ancre)
-        line(2, "── Marché actuel ──", fill=CLR_SECTION, bold=True)
-        line(3, f"Median_now (médiane panel, EV/{comp_basis})", formula=f"={median_ref}", fmt='0.00"x"',
-             note="Référence l'onglet Comparables")
-        line(4, "Facteur de rétention", run.retention_factor or 1.0, fmt="0.000",
-             note="1.0 par défaut (pas d'ancre)")
+        line(2, "── Base marché (comparables directs) ──", fill=CLR_SECTION, bold=True)
+        line(3, f"Median_now (panel, EV/{comp_basis})", formula=f"={median_ref}", fmt='0.00"x"')
 
-        line(6, "── Résultat ──", fill=CLR_SECTION, bold=True)
-        line(7, f"M_final (EV/{run.aggregate} retenu)", formula="=B3*B4", fmt='0.00"x"',
-             note="médiane comparables × rétention (valo directe, sans ancre)", bold=True, fill=CLR_RESULT)
-        line(8, f"Agrégat cible ({run.aggregate})", target_aggregate_value, fmt="#,##0",
-             note="Chiffre clé saisi sur la cible")
-        line(9, "EV cible (100 %)", formula="=B7*B8", fmt="#,##0",
-             note="EV = M_final × agrégat cible", bold=True, fill=CLR_RESULT)
-        footer = 11
-        method_note = "Méthode : valorisation directe par comparables (sans ancre de tour)."
+        line(5, "── Ajustement de croissance ──", fill=CLR_SECTION, bold=True)
+        line(6, "β (pente panel)", beta_txt, fmt='0.000"x/pt"', note=growth_note)
+        line(7, "Écart de croissance retenu (Δ, clampé)", gap_txt, fmt="0.0%")
+        line(8, "Δ croissance = β × écart", result.growth_delta, fmt='0.00"x"')
+        line(9, "Autres deltas société", result.other_deltas, fmt='0.00"x"')
 
+        line(11, "── Résultat ──", fill=CLR_SECTION, bold=True)
+        line(12, f"M_final (EV/{run.aggregate} retenu)", formula="=B3+B8+B9", fmt='0.00"x"',
+             note="médiane + Δcroissance + autres deltas (valo directe, sans ancre)", bold=True, fill=CLR_RESULT)
+        ev_row, method_note = 13, "Méthode : valorisation directe par comparables (sans ancre) + ajustement de croissance."
+
+    mfinal_ref = f"B{ev_row - 1}"
+    line(ev_row, f"Agrégat cible ({run.aggregate})", target_aggregate_value, fmt="#,##0")
+    line(ev_row + 1, "EV cible (100 %)", formula=f"={mfinal_ref}*B{ev_row}", fmt="#,##0",
+         note="EV = M_final × agrégat cible", bold=True, fill=CLR_RESULT)
+    line(ev_row + 2, "Dette nette cible", net_debt, fmt="#,##0")
+    line(ev_row + 3, "Valeur des fonds propres (equity)", formula=f"=B{ev_row + 1}-B{ev_row + 2}",
+         fmt="#,##0", note="Equity = EV − dette nette", bold=True, fill=CLR_RESULT)
+
+    footer = ev_row + 5
     ws.cell(row=footer, column=1, value=method_note).font = Font(italic=True, color="888888")
     ws.cell(row=footer + 1, column=1,
             value=f"Run #{run.id} · MODE {run.mode} · {run.run_date.strftime('%Y-%m-%d %H:%M')}").font = Font(italic=True, color="888888")

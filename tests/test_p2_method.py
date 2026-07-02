@@ -40,7 +40,7 @@ def _make_snap(ticker, market_cap, net_debt, revenue_ltm):
     )
 
 
-def _setup_run(session, mode="A", aggregate="revenue", retention_factor=1.0):
+def _setup_run(session, mode="A", aggregate="revenue", other_deltas=0.0):
     target = create_target(session, name="Cible Test", is_recurring=True, valuation_aggregate=aggregate)
     create_anchor(
         session, target.id,
@@ -55,7 +55,7 @@ def _setup_run(session, mode="A", aggregate="revenue", retention_factor=1.0):
         ("CCC", 150e6, 15e6, 15e6),
     ]
     run = create_run(session, target_id=target.id, mode=mode, aggregate=aggregate,
-                     retention_factor=retention_factor)
+                     other_deltas=other_deltas)
     for ticker, mc, nd, rev in comps_data:
         comp = create_comp(session, name=ticker, ticker=ticker, currency="USD", is_recurring=True)
         snap = insert_snapshot(session, comp.id, _make_snap(ticker, mc, nd, rev))
@@ -82,11 +82,11 @@ def test_execute_run_mode_b(session, tmp_path):
     assert ctx.result.m_final == pytest.approx(8.8)
 
 
-def test_execute_run_with_retention(session, tmp_path):
-    run_id, _ = _setup_run(session, retention_factor=1.2)
+def test_execute_run_with_other_deltas(session, tmp_path):
+    run_id, _ = _setup_run(session, other_deltas=1.0)
     ctx = execute_run(session, run_id, target_aggregate_value=5e6, output_dir=str(tmp_path))
-    # m_final = 8 * 1.1 * 1.2 = 10.56
-    assert ctx.result.m_final == pytest.approx(10.56)
+    # base = 8 × 1.1 = 8.8 ; + autres_deltas 1.0 → 9.8 (pas de croissance dans _make_snap)
+    assert ctx.result.m_final == pytest.approx(9.8)
 
 
 def test_execute_run_excluded_comp(session, tmp_path):
@@ -94,7 +94,7 @@ def test_execute_run_excluded_comp(session, tmp_path):
     target = create_target(session, name="T", is_recurring=True, valuation_aggregate="revenue")
     create_anchor(session, target.id, entry_date=date(2023, 1, 1),
                   m_entry_aggregate=8.0, m_market_entry=10.0)
-    run = create_run(session, target_id=target.id, mode="A", aggregate="revenue", retention_factor=1.0)
+    run = create_run(session, target_id=target.id, mode="A", aggregate="revenue", other_deltas=0.0)
 
     # Comp inclus : multiple 11x
     comp1 = create_comp(session, name="AAA", ticker="AAA1", currency="USD", is_recurring=True)
@@ -117,7 +117,7 @@ def test_execute_run_excluded_comp(session, tmp_path):
 def test_execute_run_no_anchor_direct_mode(session, tmp_path):
     """Sans ancre → valorisation directe : M_final = médiane des comparables × rétention."""
     target = create_target(session, name="T", is_recurring=True, valuation_aggregate="revenue")
-    run = create_run(session, target_id=target.id, mode="A", aggregate="revenue", retention_factor=1.0)
+    run = create_run(session, target_id=target.id, mode="A", aggregate="revenue", other_deltas=0.0)
     for ticker, mc, nd, rev in [("AAA", 110e6, 0, 10e6), ("BBB", 240e6, 0, 20e6)]:  # 11x, 12x
         comp = create_comp(session, name=ticker, ticker=ticker, currency="USD", is_recurring=True)
         snap = insert_snapshot(session, comp.id, _make_snap(ticker, mc, nd, rev))

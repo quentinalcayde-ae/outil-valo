@@ -1,75 +1,142 @@
-"""Méthode de valorisation agrégat-agnostique — voir PROJECT_V1.md §5."""
+"""Méthode de valorisation agrégat-agnostique — voir PROJECT_V1.md §5.
+
+Deux régimes :
+- calibration par delta (ancre présente) : base = M_entry × (median_now / m_market_entry)
+- comparables directs (pas d'ancre)     : base = median_now
+
+Ajustement de croissance (si données dispo) : on lit dans le panel le prix d'un point de
+croissance (pente β d'une régression EV/Rev = a + β·croissance), puis on l'applique au SEUL
+écart de croissance (delta depuis le tour en mode ancré ; écart de niveau en mode direct),
+plafonné à la fourchette observée du panel (convexité). Base V1 = trailing (yfinance).
+
+    M_final = base + β·écart_croissance_clampé + autres_deltas
+    EV = M_final × agrégat_cible ;  Equity = EV − dette_nette (calculé côté service)
+"""
 from dataclasses import dataclass
 from statistics import median
+
+import numpy as np
+
+MIN_COMPS_FOR_BETA = 3  # en-deçà, pente non fiable → terme de croissance omis
 
 
 @dataclass
 class ValuationInput:
-    """Entrées pour un run de valo.
-
-    Deux modes :
-    - calibration par delta (ancre présente) : m_entry_aggregate + m_market_entry renseignés.
-    - directe par comparables (pas d'ancre) : les deux à None → M_final = médiane × rétention.
-    """
-    mode: str                    # "A" ou "B"
-    comp_multiples: list[float]  # multiples des comps inclus (EV/agrégat homogène)
-    m_entry_aggregate: float | None = None  # multiple ancré au dernier tour (agrégat cible)
-    m_market_entry: float | None = None     # médiane marché au tour d'entrée
-    retention_factor: float = 1.0  # performance relative vs pairs — 1.0 si non récurrent
+    mode: str                          # "A" ou "B"
+    comp_multiples: list[float]        # EV/agrégat des comps inclus (base médiane)
+    comp_growths: list[float | None]   # croissance des mêmes comps (aligné ; None si inconnue)
+    m_entry_aggregate: float | None = None
+    m_market_entry: float | None = None
+    target_growth_now: float | None = None
+    target_growth_entry: float | None = None      # croissance cible au tour (mode ancré)
+    entry_panel_growth: float | None = None        # médiane croissance panel au tour (mode ancré)
+    other_deltas: float = 0.0          # ajustements société additifs (marge/NRR/taille), en tours
 
 
 @dataclass
 class ValuationResult:
     median_now: float
-    retention_factor: float
     m_final: float
-    drift_ratio: float | None  # median_now / m_market_entry (None en mode direct)
-    calibrated: bool           # True = calibration delta ; False = comparables directs
+    calibrated: bool
+    drift_ratio: float | None      # median_now / m_market_entry (None en direct)
+    beta: float | None             # prix d'un point de croissance (tours), None si non calculable
+    median_growth_now: float | None
+    growth_gap: float | None       # écart de croissance retenu (après clamp)
+    growth_delta: float            # β × growth_gap (0 si terme omis)
+    other_deltas: float
 
 
 def compute_ev_multiple(market_cap: float | None, net_debt: float | None) -> float | None:
-    """EV = market_cap + net_debt (net_debt peut être négatif = cash net)."""
     if market_cap is None or net_debt is None:
         return None
-    ev = market_cap + net_debt
-    return ev
+    return market_cap + net_debt
 
 
 def compute_multiple(ev: float | None, aggregate: float | None) -> float | None:
-    """M = EV / agrégat. Jamais de multiple affiché tel quel."""
     if ev is None or aggregate is None or aggregate == 0:
         return None
     return ev / aggregate
 
 
-def run_valuation(inp: ValuationInput) -> ValuationResult:
-    """
-    Calibration par delta (ancre présente) :
-        M_final = M_entry_aggregate × (median_now / m_market_entry) × retention_factor
-        Le multiple est ancré sur le dernier tour et ne dérive que du mouvement relatif
-        du marché (ratio sans unité) × performance relative. Pas de discount stacking.
+def _winsorize(values: list[float]) -> list[float]:
+    """Clippe aux 10e/90e percentiles pour amortir les outliers avant régression."""
+    if len(values) < 3:
+        return values
+    lo, hi = np.percentile(values, [10, 90])
+    return [min(max(v, lo), hi) for v in values]
 
-    Comparables directs (pas d'ancre) :
-        M_final = median_now × retention_factor
-        On applique directement la médiane des pairs (aucune référence historique).
-    """
+
+def _panel_beta(growths: list[float], multiples: list[float]) -> float | None:
+    """Pente β de EV/Rev = a + β·croissance sur le panel (None si non calculable)."""
+    if len(growths) < MIN_COMPS_FOR_BETA:
+        return None
+    g = np.array(_winsorize(growths), dtype=float)
+    m = np.array(_winsorize(multiples), dtype=float)
+    if np.ptp(g) == 0:  # aucune variance de croissance → pente indéfinie
+        return None
+    beta = np.polyfit(g, m, 1)[0]
+    return float(beta)
+
+
+def run_valuation(inp: ValuationInput) -> ValuationResult:
     if not inp.comp_multiples:
         raise ValueError("Panel vide — aucun comp inclus dans la médiane.")
 
     median_now = median(inp.comp_multiples)
     calibrated = inp.m_entry_aggregate is not None and inp.m_market_entry not in (None, 0)
 
+    # Paires (croissance, multiple) des comps ayant les deux → pente β + médiane croissance
+    pairs = [(g, m) for g, m in zip(inp.comp_growths, inp.comp_multiples, strict=False) if g is not None]
+    beta = None
+    median_growth_now = None
+    growth_range = None
+    if pairs:
+        pg = [g for g, _ in pairs]
+        pm = [m for _, m in pairs]
+        median_growth_now = median(pg)
+        growth_range = (min(pg), max(pg))
+        beta = _panel_beta(pg, pm)
+
+    # Base marché
     if calibrated:
         drift_ratio = median_now / inp.m_market_entry
-        m_final = inp.m_entry_aggregate * drift_ratio * inp.retention_factor
+        base = inp.m_entry_aggregate * drift_ratio
     else:
         drift_ratio = None
-        m_final = median_now * inp.retention_factor
+        base = median_now
+
+    # Terme de croissance (seulement si β calculable et données de croissance présentes)
+    growth_gap = None
+    growth_delta = 0.0
+    if beta is not None and median_growth_now is not None and inp.target_growth_now is not None:
+        if calibrated and inp.target_growth_entry is not None and inp.entry_panel_growth is not None:
+            # Écart de SUR-performance depuis le tour (deltas, pas niveaux → pas de double comptage)
+            d_target = inp.target_growth_now - inp.target_growth_entry
+            d_panel = median_growth_now - inp.entry_panel_growth
+            gap = d_target - d_panel
+        elif not calibrated:
+            # Mode direct : écart de niveau cible vs médiane panel
+            gap = inp.target_growth_now - median_growth_now
+        else:
+            gap = None
+
+        if gap is not None:
+            # Convexité : ne pas extrapoler hors du nuage observé du panel
+            lo = growth_range[0] - median_growth_now
+            hi = growth_range[1] - median_growth_now
+            growth_gap = min(max(gap, lo), hi)
+            growth_delta = beta * growth_gap
+
+    m_final = base + growth_delta + inp.other_deltas
 
     return ValuationResult(
         median_now=median_now,
-        retention_factor=inp.retention_factor,
         m_final=m_final,
-        drift_ratio=drift_ratio,
         calibrated=calibrated,
+        drift_ratio=drift_ratio,
+        beta=beta,
+        median_growth_now=median_growth_now,
+        growth_gap=growth_gap,
+        growth_delta=growth_delta,
+        other_deltas=inp.other_deltas,
     )

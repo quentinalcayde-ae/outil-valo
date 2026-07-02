@@ -13,6 +13,7 @@ export interface Target {
   fund: string | null
   aggregate_value: number | null
   net_debt: number | null
+  growth_now: number | null
   description: string | null
   notes: string | null
   created_at: string
@@ -160,6 +161,8 @@ export interface Anchor {
   m_market_entry: number | null
   market_anchor_basis: string | null
   m_market_entry_source: string
+  entry_growth: number | null
+  entry_panel_growth: number | null
 }
 export const getAnchors = (targetId: number) =>
   http.get<Anchor[]>(`/targets/${targetId}/anchors`).then(r => r.data)
@@ -170,8 +173,8 @@ export interface PanelBody {
   comps: { ticker: string; name?: string; relevance_note?: string | null }[]
   mode: 'A' | 'B'
   aggregate: string
-  retention_factor: number
-  anchor: { entry_date: string; entry_round?: string | null; m_entry_aggregate: number } | null
+  other_deltas: number
+  anchor: { entry_date: string; entry_round?: string | null; m_entry_aggregate: number; entry_growth?: number | null } | null
 }
 
 export const createPanel = (targetId: number, body: PanelBody) =>

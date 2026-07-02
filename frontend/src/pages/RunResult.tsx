@@ -67,8 +67,8 @@ export default function RunResult() {
           <div className="grid grid-cols-4 gap-4">
             <Metric label="Médiane now" value={fmtM(run.median_now)} />
             <Metric label="M_final" value={fmtM(run.m_final)} highlight />
-            <Metric label="EV cible" value={fmtBn(run.result_ev) + ' €'} highlight />
-            <Metric label="Rétention" value={fmtM(run.retention_factor)} />
+            <Metric label="EV cible" value={fmtBn(run.result_ev) + ' €'} />
+            <Metric label="Equity (− dette nette)" value={fmtBn(run.result_equity) + ' €'} highlight />
           </div>
           {run.excel_path && (
             <a href={`/api/runs/${run.id}/excel`}

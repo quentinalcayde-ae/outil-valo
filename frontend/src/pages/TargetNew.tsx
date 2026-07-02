@@ -12,6 +12,7 @@ interface Form {
   fund: string
   aggregate_value: string
   net_debt: string
+  growth_now: string
   description: string
   notes: string
 }
@@ -34,6 +35,7 @@ export default function TargetNew() {
         fund: data.fund || null,
         aggregate_value: data.aggregate_value ? parseFloat(data.aggregate_value) * 1e6 : null,
         net_debt: data.net_debt ? parseFloat(data.net_debt) * 1e6 : null,
+        growth_now: data.growth_now ? parseFloat(data.growth_now) / 100 : null,
         description: data.description || null,
         notes: data.notes || null,
       }),
@@ -78,6 +80,9 @@ export default function TargetNew() {
             <Input label="Dette nette (M€)" type="number" step="any"
               {...register('net_debt')} placeholder="0.3" />
           </div>
+
+          <Input label="Croissance actuelle (% YoY)" type="number" step="any"
+            {...register('growth_now')} placeholder="45" />
 
           <Select label="Fonds" {...register('fund')}>
             <option value="">—</option>

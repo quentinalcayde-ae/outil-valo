@@ -82,7 +82,7 @@ def test_full_flow(client, tmp_path, monkeypatch):
     # 3. Panel validé (identité seulement)
     run = client.post(f"/runs/panel?target_id={tid}", json={
         "comps": [{"ticker": tk, "name": tk} for tk in tickers],
-        "mode": "A", "aggregate": "revenue", "retention_factor": 1.0,
+        "mode": "A", "aggregate": "revenue", "other_deltas": 0.0,
         "anchor": {"entry_date": "2023-06-30", "entry_round": "Série B", "m_entry_aggregate": 8.0},
     }).json()
     run_id = run["id"]
@@ -111,7 +111,7 @@ def test_anchor_manual_override(client):
     tid = t["id"]
     run = client.post(f"/runs/panel?target_id={tid}", json={
         "comps": [{"ticker": "CRM"}],
-        "mode": "A", "aggregate": "arr", "retention_factor": 1.0,
+        "mode": "A", "aggregate": "arr", "other_deltas": 0.0,
         "anchor": {"entry_date": "2023-06-30", "m_entry_aggregate": 12.0},
     }).json()
     # Cas ARR : override manuel du multiple d'ancre

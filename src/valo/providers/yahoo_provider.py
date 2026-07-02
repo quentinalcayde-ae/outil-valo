@@ -25,14 +25,16 @@ class YahooProvider(MarketDataProvider):
         cash = info.get("totalCash", 0) or 0
         net_debt = total_debt - cash
         revenue_ltm = info.get("totalRevenue")
+        revenue_growth = info.get("revenueGrowth")  # YoY trailing (décimal), parfois absent
 
         source = {
             "market_cap": "yfinance:marketCap",
             "net_debt": "yfinance:totalDebt-totalCash",
             "revenue_ltm": "yfinance:totalRevenue",
+            "revenue_growth": "yfinance:revenueGrowth(trailing)",
         }
 
-        log.info("yahoo_snapshot_ok", market_cap=market_cap)
+        log.info("yahoo_snapshot_ok", market_cap=market_cap, growth=revenue_growth)
         return MarketSnapshot(
             ticker=ticker,
             fetched_at=datetime.utcnow(),
@@ -41,6 +43,7 @@ class YahooProvider(MarketDataProvider):
             cash=cash,
             revenue_ltm=revenue_ltm,
             source_by_field=source,
+            revenue_growth=revenue_growth,
         )
 
     def resolve_ticker(self, ticker: str) -> dict:
@@ -82,13 +85,15 @@ class YahooProvider(MarketDataProvider):
 
         net_debt = self._nearest_net_debt(tk, as_of)
         revenue = self._nearest_revenue(tk, as_of)
+        revenue_growth = self._growth_at(tk, as_of)
 
         source = {
             "market_cap": f"yfinance:hist_close({as_of})×sharesOutstanding",
             "net_debt": "yfinance:quarterly_balance_sheet~as_of",
             "revenue_ltm": "yfinance:income_stmt~as_of",
+            "revenue_growth": "yfinance:income_stmt YoY~as_of",
         }
-        log.info("yahoo_historical_ok", market_cap=market_cap, close=close)
+        log.info("yahoo_historical_ok", market_cap=market_cap, close=close, growth=revenue_growth)
         return MarketSnapshot(
             ticker=ticker,
             fetched_at=datetime.utcnow(),
@@ -97,6 +102,7 @@ class YahooProvider(MarketDataProvider):
             cash=None,
             revenue_ltm=revenue,
             source_by_field=source,
+            revenue_growth=revenue_growth,
             as_of_date=as_of,
         )
 
@@ -121,6 +127,25 @@ class YahooProvider(MarketDataProvider):
             if debt is not None:
                 return debt - (cash or 0)
         return None
+
+    @staticmethod
+    def _growth_at(tk, as_of: date) -> float | None:
+        """Croissance YoY du revenue à la date : revenue(année ≤ as_of) / revenue(année précédente) − 1."""
+        labels = ["Total Revenue", "Revenue", "Operating Revenue"]
+        try:
+            fin = tk.income_stmt
+            if fin is None or fin.empty:
+                return None
+            cols = sorted([c for c in fin.columns if c.date() <= as_of], reverse=True)
+            if len(cols) < 2:
+                return None
+            cur = _row(fin, cols[0], labels)
+            prev = _row(fin, cols[1], labels)
+            if cur is None or not prev:
+                return None
+            return cur / prev - 1
+        except Exception:
+            return None
 
     @staticmethod
     def _nearest_revenue(tk, as_of: date) -> float | None:

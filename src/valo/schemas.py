@@ -14,6 +14,7 @@ class TargetCreate(BaseModel):
     fund: str | None = None
     aggregate_value: float | None = None  # chiffre clé : agrégat courant (€)
     net_debt: float | None = None
+    growth_now: float | None = None        # croissance actuelle de la cible (décimal)
     description: str | None = None         # pitch pour la découverte LLM
     notes: str | None = None
 
@@ -27,6 +28,7 @@ class TargetOut(BaseModel):
     fund: str | None
     aggregate_value: float | None
     net_debt: float | None
+    growth_now: float | None
     description: str | None
     notes: str | None
     created_at: datetime
@@ -43,6 +45,8 @@ class AnchorOut(BaseModel):
     m_market_entry: float | None
     market_anchor_basis: str | None
     m_market_entry_source: str
+    entry_growth: float | None
+    entry_panel_growth: float | None
 
     model_config = {"from_attributes": True}
 
@@ -131,13 +135,14 @@ class AnchorEntryIn(BaseModel):
     entry_date: date
     entry_round: str | None = None
     m_entry_aggregate: float
+    entry_growth: float | None = None  # croissance de la cible au tour (décimal)
 
 
 class PanelCreate(BaseModel):
     comps: list[PanelCompIn] = Field(min_length=1)
     mode: str = Field(default="A", pattern="^[AB]$")
     aggregate: str
-    retention_factor: float = 1.0
+    other_deltas: float = 0.0  # ajustements société additifs (marge/NRR/taille), en tours
     anchor: AnchorEntryIn | None = None  # None → valorisation directe (sans ancre)
 
 

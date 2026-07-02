@@ -94,6 +94,7 @@ def insert_snapshot(session: Session, comp_id: int, snap: MarketSnapshot) -> Com
         net_debt=snap.net_debt,
         cash=snap.cash,
         revenue_ltm=snap.revenue_ltm,
+        revenue_growth=snap.revenue_growth,
         recurring_value=None,
         source_by_field=snap.source_by_field,
         ev=ev,
@@ -187,6 +188,7 @@ def set_anchor_market(
     m_market_entry: float,
     basis: str,
     source: str,
+    entry_panel_growth: float | None = None,
 ) -> "TargetAnchor":
     """Gèle l'ancre marché (calculée ou saisie) — MODE A."""
     anchor = session.get(TargetAnchor, anchor_id)
@@ -195,6 +197,8 @@ def set_anchor_market(
     anchor.m_market_entry = m_market_entry
     anchor.market_anchor_basis = basis
     anchor.m_market_entry_source = source
+    if entry_panel_growth is not None:
+        anchor.entry_panel_growth = entry_panel_growth
     session.flush()
     return anchor
 
@@ -203,7 +207,6 @@ def update_run_result(
     session: Session,
     run_id: int,
     median_now: float,
-    retention_factor: float,
     m_final: float,
     result_ev: float | None,
     result_equity: float | None,
@@ -213,7 +216,6 @@ def update_run_result(
     if run is None:
         raise ValueError(f"Run {run_id} introuvable.")
     run.median_now = median_now
-    run.retention_factor = retention_factor
     run.m_final = m_final
     run.result_ev = result_ev
     run.result_equity = result_equity

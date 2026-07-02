@@ -14,6 +14,7 @@ class MarketSnapshot:
     cash: float | None
     revenue_ltm: float | None
     source_by_field: dict
+    revenue_growth: float | None = None  # croissance YoY (décimal, trailing)
     # Rempli pour un snapshot historique (ancre marché) ; None si live
     as_of_date: date | None = None
 

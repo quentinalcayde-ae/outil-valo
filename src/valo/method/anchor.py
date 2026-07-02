@@ -31,6 +31,7 @@ class AnchorProposal:
     entry_date: date
     m_market_entry: float | None     # médiane des multiples disponibles
     n_available: int
+    entry_panel_growth: float | None = None  # médiane de la croissance du panel au tour
     details: list[AnchorCompDetail] = field(default_factory=list)
 
 
@@ -43,6 +44,7 @@ def compute_market_anchor(
     log = logger.bind(op="compute_market_anchor", entry_date=str(entry_date), n=len(tickers))
     details: list[AnchorCompDetail] = []
     multiples: list[float] = []
+    growths: list[float] = []
 
     for ticker in tickers:
         try:
@@ -59,6 +61,8 @@ def compute_market_anchor(
         if ev is not None and snap.revenue_ltm and snap.revenue_ltm > 0:
             multiple = ev / snap.revenue_ltm
             multiples.append(multiple)
+        if snap.revenue_growth is not None:
+            growths.append(snap.revenue_growth)
 
         details.append(AnchorCompDetail(
             ticker=ticker,
@@ -70,12 +74,15 @@ def compute_market_anchor(
         ))
 
     m_market_entry = median(multiples) if multiples else None
-    log.info("anchor_computed", m_market_entry=m_market_entry, n_available=len(multiples))
+    entry_panel_growth = median(growths) if growths else None
+    log.info("anchor_computed", m_market_entry=m_market_entry, n_available=len(multiples),
+             entry_panel_growth=entry_panel_growth)
 
     return AnchorProposal(
         basis="revenue",
         entry_date=entry_date,
         m_market_entry=m_market_entry,
         n_available=len(multiples),
+        entry_panel_growth=entry_panel_growth,
         details=details,
     )

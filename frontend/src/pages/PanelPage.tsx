@@ -64,11 +64,12 @@ export default function PanelPage() {
   }, [target?.id]) // eslint-disable-line
 
   const [mode, setMode] = useState<'A' | 'B'>('A')
-  const [retention, setRetention] = useState('1.0')
+  const [otherDeltas, setOtherDeltas] = useState('0')
   const [useAnchor, setUseAnchor] = useState(true)
   const [entryDate, setEntryDate] = useState('')
   const [entryRound, setEntryRound] = useState('')
   const [mEntry, setMEntry] = useState('')
+  const [entryGrowth, setEntryGrowth] = useState('')  // croissance cible au tour (%)
 
   // Pré-remplit l'ancre depuis la cible si elle a déjà été saisie (pas de re-saisie à chaque run)
   useEffect(() => {
@@ -79,6 +80,7 @@ export default function PanelPage() {
         setEntryDate(a.entry_date ?? '')
         setEntryRound(a.entry_round ?? '')
         setMEntry(a.m_entry_aggregate != null ? String(a.m_entry_aggregate) : '')
+        setEntryGrowth(a.entry_growth != null ? String(a.entry_growth * 100) : '')
         setUseAnchor(true)
       }
     })
@@ -97,9 +99,13 @@ export default function PanelPage() {
       })),
       mode,
       aggregate: target!.valuation_aggregate,
-      retention_factor: parseFloat(retention) || 1.0,
+      other_deltas: parseFloat(otherDeltas) || 0,
       anchor: useAnchor && entryDate && mEntry
-        ? { entry_date: entryDate, entry_round: entryRound || null, m_entry_aggregate: parseFloat(mEntry) }
+        ? {
+            entry_date: entryDate, entry_round: entryRound || null,
+            m_entry_aggregate: parseFloat(mEntry),
+            entry_growth: entryGrowth ? parseFloat(entryGrowth) / 100 : null,
+          }
         : null,
     }),
     onSuccess: (run) => nav(`/runs/${run.id}`),
@@ -208,28 +214,27 @@ export default function PanelPage() {
               <Input label="Libellé tour" value={entryRound} onChange={e => setEntryRound(e.target.value)} placeholder="Série B" />
               <Input label={`M_entry (EV/${target.valuation_aggregate} au tour) *`} type="number" step="any"
                 value={mEntry} onChange={e => setMEntry(e.target.value)} placeholder="8.0" />
-              <Input label="Facteur rétention" type="number" step="any" value={retention} onChange={e => setRetention(e.target.value)} />
+              <Input label="Croissance cible au tour (% YoY)" type="number" step="any"
+                value={entryGrowth} onChange={e => setEntryGrowth(e.target.value)} placeholder="45" />
             </div>
             <p className="text-xs text-slate-400 mt-2">
-              La médiane marché au tour (m_market_entry) sera calculée automatiquement à l'étape suivante.
+              La médiane marché au tour (m_market_entry) et la croissance du panel au tour seront
+              calculées automatiquement à l'étape suivante (base trailing yfinance).
             </p>
           </>
         ) : (
-          <>
-            <div className="grid grid-cols-2 gap-3">
-              <Input label="Facteur rétention" type="number" step="any" value={retention} onChange={e => setRetention(e.target.value)} />
-            </div>
-            <p className="text-xs text-amber-600 mt-2">
-              Valorisation directe : la médiane des comparables sera appliquée telle quelle
-              (M_final = médiane × rétention), sans référence à un tour d'entrée.
-            </p>
-          </>
+          <p className="text-xs text-amber-600">
+            Valorisation directe : la médiane des comparables est appliquée telle quelle, avec
+            ajustement de croissance vs le panel (si dispo), sans référence à un tour d'entrée.
+          </p>
         )}
-        <div className="mt-3">
+        <div className="grid grid-cols-2 gap-3 mt-3">
           <Select label="Mode" value={mode} onChange={e => setMode(e.target.value as 'A' | 'B')}>
             <option value="A">MODE A — amorçage</option>
             <option value="B">MODE B — trimestriel</option>
           </Select>
+          <Input label="Autres deltas société (tours : marge/NRR/taille)" type="number" step="any"
+            value={otherDeltas} onChange={e => setOtherDeltas(e.target.value)} placeholder="0" />
         </div>
       </Card>
 
