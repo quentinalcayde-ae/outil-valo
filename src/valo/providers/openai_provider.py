@@ -28,25 +28,46 @@ def _parse_date(v) -> date | None:
         return None
 
 
-class OpenAIProvider(LLMProvider):
-    def __init__(self, api_key: str, model: str = "gpt-4o-mini") -> None:
-        self.client = OpenAI(api_key=api_key)
-        self.model = model
+# Prompts de MISE EN FORME (petit modèle) — normalisent le texte de découverte en JSON strict.
+COMPS_FORMAT_SYSTEM = """Tu reçois l'analyse d'un autre expert listant des sociétés cotées comparables.
+Extrais-la en JSON STRICT, sans rien inventer ni ajouter de société absente du texte.
+Conserve les tickers EXACTEMENT tels quels. Fusionne toute nuance/limite dans "rationale".
+Format : {"comps":[{"name":str,"ticker":str,"rationale":str,"sector":str,"confidence":"high"|"medium"|"low"}]}
+Si le texte ne contient aucune société exploitable : {"comps":[]}."""
 
-    def _complete_json(self, messages: list[dict]) -> dict:
+TRANSACTIONS_FORMAT_SYSTEM = """Tu reçois l'analyse d'un expert listant des transactions M&A comparables.
+Extrais-la en JSON STRICT, sans rien inventer. Ne fabrique aucun chiffre : implied_multiple=null sauf s'il
+figure explicitement dans le texte. tx_date au format ISO "YYYY-MM-DD" ou null.
+Format : {"transactions":[{"target_company":str,"acquirer":str|null,"tx_date":str|null,"rationale":str,"source_doc_url":str|null,"implied_multiple":number|null,"sector":str|null}]}
+Si aucune transaction exploitable : {"transactions":[]}."""
+
+
+class OpenAIProvider(LLMProvider):
+    def __init__(self, api_key: str, discovery_model: str = "gpt-4o-mini",
+                 formatting_model: str = "gpt-4o-mini") -> None:
+        self.client = OpenAI(api_key=api_key)
+        self.discovery_model = discovery_model
+        self.formatting_model = formatting_model
+
+    def _discover(self, messages: list[dict]) -> str:
+        """Étape 1 — raisonnement (modèle fort), texte libre, sans contrainte JSON."""
+        resp = self.client.chat.completions.create(model=self.discovery_model, messages=messages)
+        return resp.choices[0].message.content or ""
+
+    def _format_json(self, system: str, raw_text: str) -> dict:
+        """Étape 2 — mise en forme JSON stricte (petit modèle rapide)."""
         resp = self.client.chat.completions.create(
-            model=self.model,
-            messages=messages,
+            model=self.formatting_model,
+            messages=[{"role": "system", "content": system}, {"role": "user", "content": raw_text}],
             response_format={"type": "json_object"},
-            temperature=0.2,
         )
-        content = resp.choices[0].message.content or "{}"
-        return json.loads(content)
+        return json.loads(resp.choices[0].message.content or "{}")
 
     def suggest_comps(self, ctx: TargetContext, n: int = 8) -> list[CompSuggestion]:
-        log = logger.bind(op="suggest_comps", model=self.model, target=ctx.name)
+        log = logger.bind(op="suggest_comps", model=self.discovery_model, target=ctx.name)
         try:
-            data = self._complete_json(discovery.comps_messages(ctx, n))
+            raw = self._discover(discovery.comps_messages(ctx, n))
+            data = self._format_json(COMPS_FORMAT_SYSTEM, raw)
         except Exception as exc:
             log.error("openai_suggest_comps_failed", error=str(exc))
             raise
@@ -71,9 +92,10 @@ class OpenAIProvider(LLMProvider):
         return out
 
     def suggest_transactions(self, ctx: TargetContext, n: int = 5) -> list[TransactionSuggestion]:
-        log = logger.bind(op="suggest_transactions", model=self.model, target=ctx.name)
+        log = logger.bind(op="suggest_transactions", model=self.discovery_model, target=ctx.name)
         try:
-            data = self._complete_json(discovery.transactions_messages(ctx, n))
+            raw = self._discover(discovery.transactions_messages(ctx, n))
+            data = self._format_json(TRANSACTIONS_FORMAT_SYSTEM, raw)
         except Exception as exc:
             log.error("openai_suggest_transactions_failed", error=str(exc))
             raise

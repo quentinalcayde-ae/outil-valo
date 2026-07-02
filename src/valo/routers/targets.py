@@ -52,6 +52,16 @@ def list_anchors(target_id: int, session: Session = Depends(get_session)):
     return get_anchors(session, target_id)
 
 
+@router.get("/{target_id}/suggestions", response_model=SuggestResponse)
+def get_suggestions(target_id: int, session: Session = Depends(get_session)):
+    """Renvoie la dernière découverte mémorisée (sans appel LLM). Vide si jamais découverte."""
+    target = get_target(session, target_id)
+    if target is None:
+        raise HTTPException(status_code=404, detail="Cible introuvable.")
+    cached = target.discovery_json or {}
+    return SuggestResponse(comps=cached.get("comps", []), transactions=cached.get("transactions", []))
+
+
 @router.post("/{target_id}/suggest", response_model=SuggestResponse)
 def suggest(
     target_id: int,
@@ -59,7 +69,8 @@ def suggest(
     session: Session = Depends(get_session),
     llm: LLMProvider = Depends(get_llm),
 ):
-    """Découverte LLM : propose comps cotés + transactions M&A (identité + rationale)."""
+    """Découverte LLM : propose comps cotés + transactions M&A (identité + rationale).
+    Le résultat est mémorisé sur la cible (réutilisable sans re-appel LLM aux runs suivants)."""
     target = get_target(session, target_id)
     if target is None:
         raise HTTPException(status_code=404, detail="Cible introuvable.")
@@ -73,9 +84,15 @@ def suggest(
         aggregate_value=target.aggregate_value,
         extra_tickers=[t.upper() for t in body.extra_tickers],
     )
-    comps = llm.suggest_comps(ctx, n=body.n_comps)
-    txs = llm.suggest_transactions(ctx, n=body.n_transactions)
-    return SuggestResponse(
-        comps=[c.__dict__ for c in comps],
-        transactions=[t.__dict__ for t in txs],
-    )
+    comps = [c.__dict__ for c in llm.suggest_comps(ctx, n=body.n_comps)]
+    txs = [_tx_dict(t) for t in llm.suggest_transactions(ctx, n=body.n_transactions)]
+    target.discovery_json = {"comps": comps, "transactions": txs}  # mémorise
+    session.flush()
+    return SuggestResponse(comps=comps, transactions=txs)
+
+
+def _tx_dict(t) -> dict:
+    d = dict(t.__dict__)
+    if d.get("tx_date") is not None:
+        d["tx_date"] = d["tx_date"].isoformat()  # date → str JSON-sérialisable
+    return d

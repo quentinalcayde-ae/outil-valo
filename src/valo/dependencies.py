@@ -25,5 +25,9 @@ def get_llm() -> LLMProvider:
     """OpenAIProvider si OPENAI_API_KEY présente, sinon MockLLMProvider (fallback sans clé)."""
     if settings.openai_api_key:
         from valo.providers.openai_provider import OpenAIProvider
-        return OpenAIProvider(api_key=settings.openai_api_key, model=settings.openai_model)
+        return OpenAIProvider(
+            api_key=settings.openai_api_key,
+            discovery_model=settings.discovery_model,
+            formatting_model=settings.fast_formatting_model,
+        )
     return MockLLMProvider()

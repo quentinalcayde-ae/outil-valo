@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
 import { Plus, Trash2, Sparkles, ArrowRight, CheckCircle2, AlertTriangle } from 'lucide-react'
-import { getTarget, suggest, createPanel, resolveTickers, type CompSuggestion, type ResolveItem } from '../api'
+import { getTarget, suggest, getSuggestions, createPanel, resolveTickers, type SuggestResponse, type ResolveItem } from '../api'
 import { PageHeader, Card, Input, Select, Button, Spinner, ErrorBox } from '../components/ui'
 
 interface Row { ticker: string; name: string; relevance_note: string; included: boolean }
@@ -30,23 +30,36 @@ export default function PanelPage() {
     },
   })
 
+  const populate = (data: SuggestResponse) => {
+    setRows(data.comps.map(c => ({
+      ticker: c.ticker, name: c.name, relevance_note: c.rationale, included: true,
+    })))
+    setTxs(data.transactions.map(t => ({
+      label: `${t.target_company}${t.acquirer ? ` ← ${t.acquirer}` : ''}`,
+      note: t.rationale, keep: true,
+    })))
+    const tickers = data.comps.map(c => c.ticker).filter(Boolean)
+    if (tickers.length) resolveMut.mutate(tickers)
+  }
+
+  // Découverte LLM (forcée) — ré-appelle le modèle et écrase le cache
   const suggestMut = useMutation({
     mutationFn: () => suggest(id, { n_comps: 8, n_transactions: 5 }),
-    onSuccess: (data) => {
-      setRows(data.comps.map((c: CompSuggestion) => ({
-        ticker: c.ticker, name: c.name, relevance_note: c.rationale, included: true,
-      })))
-      setTxs(data.transactions.map(t => ({
-        label: `${t.target_company}${t.acquirer ? ` ← ${t.acquirer}` : ''}`,
-        note: t.rationale, keep: true,
-      })))
-      const tickers = data.comps.map(c => c.ticker).filter(Boolean)
-      if (tickers.length) resolveMut.mutate(tickers)
-    },
+    onSuccess: populate,
   })
 
-  // Lance la découverte automatiquement à l'arrivée
-  useEffect(() => { if (target) suggestMut.mutate() }, [target?.id]) // eslint-disable-line
+  // À l'arrivée : réutilise la découverte mémorisée si elle existe (aucun appel LLM),
+  // sinon lance la découverte une première fois.
+  useEffect(() => {
+    if (!target) return
+    let cancelled = false
+    getSuggestions(id).then(cached => {
+      if (cancelled) return
+      if (cached.comps.length > 0) populate(cached)
+      else suggestMut.mutate()
+    })
+    return () => { cancelled = true }
+  }, [target?.id]) // eslint-disable-line
 
   const [mode, setMode] = useState<'A' | 'B'>('A')
   const [retention, setRetention] = useState('1.0')
@@ -92,7 +105,7 @@ export default function PanelPage() {
               {resolveMut.isPending ? 'Vérif…' : 'Vérifier les tickers'}
             </Button>
             <Button variant="secondary" onClick={() => suggestMut.mutate()} disabled={suggestMut.isPending}>
-              {suggestMut.isPending ? 'Recherche…' : 'Re-proposer'}
+              {suggestMut.isPending ? 'Recherche…' : 'Re-découvrir (LLM)'}
             </Button>
             <Button variant="secondary" onClick={addRow}><Plus size={13} /> Ajouter</Button>
           </div>

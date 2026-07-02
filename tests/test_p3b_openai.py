@@ -6,10 +6,12 @@ from valo.providers.openai_provider import OpenAIProvider, _parse_date
 
 
 def _provider(monkeypatch, payload):
-    """Instancie un OpenAIProvider dont _complete_json renvoie payload (aucun réseau)."""
+    """Instancie un OpenAIProvider dont la découverte/mise en forme renvoie payload (aucun réseau)."""
     p = OpenAIProvider.__new__(OpenAIProvider)  # évite __init__ (pas de client réel)
-    p.model = "test"
-    monkeypatch.setattr(p, "_complete_json", lambda messages: payload)
+    p.discovery_model = "test"
+    p.formatting_model = "test"
+    monkeypatch.setattr(p, "_discover", lambda messages: "raw text")
+    monkeypatch.setattr(p, "_format_json", lambda system, raw: payload)
     return p
 
 

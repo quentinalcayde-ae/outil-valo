@@ -43,6 +43,9 @@ class Target(Base):
     aggregate_value: Mapped[float | None] = mapped_column(Float)  # ex. ARR courant (€)
     net_debt: Mapped[float | None] = mapped_column(Float)
     description: Mapped[str | None] = mapped_column(Text)  # pitch pour la découverte LLM
+    # Dernière découverte LLM mémorisée {comps:[...], transactions:[...]} — évite de re-appeler
+    # le LLM à chaque nouveau run tant que le panel convient.
+    discovery_json: Mapped[dict | None] = mapped_column(JSON)
     notes: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=lambda: datetime.now(UTC))
 
