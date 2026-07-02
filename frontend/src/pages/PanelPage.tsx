@@ -30,6 +30,8 @@ export default function PanelPage() {
     },
   })
 
+  const [fromCache, setFromCache] = useState(false)
+
   const populate = (data: SuggestResponse) => {
     setRows(data.comps.map(c => ({
       ticker: c.ticker, name: c.name, relevance_note: c.rationale, included: true,
@@ -45,7 +47,7 @@ export default function PanelPage() {
   // Découverte LLM (forcée) — ré-appelle le modèle et écrase le cache
   const suggestMut = useMutation({
     mutationFn: () => suggest(id, { n_comps: 8, n_transactions: 5 }),
-    onSuccess: populate,
+    onSuccess: (data) => { setFromCache(false); populate(data) },
   })
 
   // À l'arrivée : réutilise la découverte mémorisée si elle existe (aucun appel LLM),
@@ -55,7 +57,7 @@ export default function PanelPage() {
     let cancelled = false
     getSuggestions(id).then(cached => {
       if (cancelled) return
-      if (cached.comps.length > 0) populate(cached)
+      if (cached.comps.length > 0) { setFromCache(true); populate(cached) }
       else suggestMut.mutate()
     })
     return () => { cancelled = true }
@@ -98,6 +100,11 @@ export default function PanelPage() {
         <div className="px-5 py-3 border-b border-slate-100 flex items-center justify-between">
           <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-1.5">
             <Sparkles size={15} className="text-brand" /> Comparables cotés proposés
+            {fromCache && (
+              <span className="ml-1 rounded bg-green-100 text-green-700 text-[11px] font-medium px-1.5 py-0.5">
+                panel réutilisé (dernière découverte)
+              </span>
+            )}
           </h3>
           <div className="flex gap-2">
             <Button variant="secondary" onClick={() => resolveMut.mutate(rows.map(r => r.ticker).filter(Boolean))}
