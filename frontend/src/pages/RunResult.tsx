@@ -3,8 +3,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
 import { Play, Download, Check, X, Anchor as AnchorIcon } from 'lucide-react'
 import {
-  getRun, getTarget, getAnchors, patchRunComps, computeAnchor, executeRun,
-  fmtM, fmtBn, apiError, type RunComp, type AnchorProposal,
+  getRun, getTarget, getAnchors, getSuggestions, patchRunComps, computeAnchor, executeRun,
+  fmtM, fmtBn, apiError, type RunComp, type AnchorProposal, type TransactionSuggestion,
 } from '../api'
 import { PageHeader, Card, Button, Spinner, ErrorBox, Badge } from '../components/ui'
 
@@ -17,6 +17,7 @@ export default function RunResult() {
   const { data: run, isLoading, error } = useQuery({ queryKey: ['run', id], queryFn: () => getRun(id) })
   const { data: target } = useQuery({ queryKey: ['target', run?.target_id], queryFn: () => getTarget(run!.target_id), enabled: !!run })
   const { data: anchors } = useQuery({ queryKey: ['anchors', run?.target_id], queryFn: () => getAnchors(run!.target_id), enabled: !!run })
+  const { data: suggestions } = useQuery({ queryKey: ['suggestions', run?.target_id], queryFn: () => getSuggestions(run!.target_id), enabled: !!run })
 
   const anchor = anchors?.[anchors.length - 1]
   const anchored = anchor?.m_market_entry != null
@@ -69,9 +70,10 @@ export default function RunResult() {
             <Metric label="Rétention" value={fmtM(run.retention_factor)} />
           </div>
           {run.excel_path && (
-            <p className="mt-3 text-xs text-slate-500 flex items-center gap-1">
-              <Download size={12} /> Excel : {run.excel_path}
-            </p>
+            <a href={`/api/runs/${run.id}/excel`}
+               className="mt-3 inline-flex items-center gap-1.5 rounded-md bg-brand px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-900">
+              <Download size={14} /> Télécharger l'Excel (Synthèse + Comparables)
+            </a>
           )}
         </Card>
       )}
@@ -122,6 +124,50 @@ export default function RunResult() {
         </table>
         <p className="px-5 py-2 text-xs text-slate-400">Les snapshots financiers sont gelés au calcul de la valo (recherche financière).</p>
       </Card>
+
+      {/* Transactions M&A comparables — cross-check, hors médiane */}
+      {suggestions && suggestions.transactions.length > 0 && (
+        <Card className="mb-5">
+          <div className="px-5 py-3 border-b border-slate-100">
+            <h3 className="text-sm font-semibold text-slate-700">Transactions M&A comparables
+              <span className="ml-2 text-xs font-normal text-slate-400">cross-check qualitatif · hors médiane</span>
+            </h3>
+          </div>
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 text-xs text-slate-500 uppercase tracking-wide">
+              <tr>
+                <th className="px-5 py-2 text-left">Cible ← Acquéreur</th>
+                <th className="px-4 py-2 text-left">Date</th>
+                <th className="px-4 py-2 text-right">Multiple</th>
+                <th className="px-4 py-2 text-left">Source</th>
+                <th className="px-4 py-2 text-left">Note</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {suggestions.transactions.map((t: TransactionSuggestion, i: number) => (
+                <tr key={i}>
+                  <td className="px-5 py-3 font-medium">
+                    {t.target_company} <span className="text-slate-400">←</span> {t.acquirer ?? 'nc.'}
+                  </td>
+                  <td className="px-4 py-3 text-slate-600">{t.tx_date ?? 'nc.'}</td>
+                  <td className="px-4 py-3 text-right font-mono">
+                    {t.implied_multiple != null ? `${t.implied_multiple.toFixed(1)}x` : 'nc.'}
+                  </td>
+                  <td className="px-4 py-3 text-xs">
+                    {t.source_doc_url
+                      ? <a href={t.source_doc_url} target="_blank" rel="noreferrer" className="text-brand hover:underline">source</a>
+                      : <span className="text-slate-400">nc.</span>}
+                  </td>
+                  <td className="px-4 py-3 text-slate-500 text-xs max-w-[220px] truncate">{t.rationale}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="px-5 py-2 text-xs text-slate-400">
+            Proposées par l'IA à titre de repère qualitatif — les chiffres (prix, multiple) sont à vérifier manuellement et n'entrent jamais dans la médiane.
+          </p>
+        </Card>
+      )}
 
       {/* Ancre marché */}
       {!hasResult && (

@@ -1,4 +1,7 @@
+import os
+
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from valo.dependencies import get_session, get_yahoo
@@ -66,6 +69,21 @@ def create_panel(target_id: int, body: PanelCreate, session: Session = Depends(g
 
     session.flush()
     return _enrich_run(get_run(session, run.id))
+
+
+@router.get("/{run_id}/excel")
+def download_excel(run_id: int, session: Session = Depends(get_session)):
+    """Télécharge le classeur Excel formula-driven du run."""
+    run = get_run(session, run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="Run introuvable.")
+    if not run.excel_path or not os.path.exists(run.excel_path):
+        raise HTTPException(status_code=404, detail="Excel non généré — lancez d'abord le calcul de la valo.")
+    return FileResponse(
+        run.excel_path,
+        filename=os.path.basename(run.excel_path),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
 
 
 @router.get("/{run_id}", response_model=RunOut)
