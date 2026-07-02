@@ -17,7 +17,7 @@ python -m venv .venv
 .venv\Scripts\activate          # Windows
 pip install -r requirements.txt
 cp .env.example .env            # remplir OPENAI_API_KEY
-uvicorn src.valo.main:app --reload
+uvicorn valo.main:app --reload --app-dir src
 
 # Frontend
 cd frontend
