@@ -33,11 +33,12 @@ def export_excel(
     excluded_comps: list[dict],
     target_aggregate_value: float,
     result_ev: float,
+    comp_basis: str | None = None,
     output_dir: str = "exports",
 ) -> str:
     wb = Workbook()
-    median_ref = _build_comps_sheet(wb, run, included_comps, excluded_comps)
-    _build_synthese_sheet(wb, run, anchor, result, target_aggregate_value, median_ref)
+    median_ref = _build_comps_sheet(wb, run, included_comps, excluded_comps, comp_basis or run.aggregate)
+    _build_synthese_sheet(wb, run, anchor, result, target_aggregate_value, median_ref, comp_basis or run.aggregate)
 
     # Ordonne : Synthèse en premier
     wb.move_sheet("Synthèse", -(len(wb.sheetnames) - 1))
@@ -50,14 +51,12 @@ def export_excel(
     return path
 
 
-def _build_comps_sheet(wb, run, included, excluded) -> str:
+def _build_comps_sheet(wb, run, included, excluded, agg) -> str:
     """Tableau de comps classique. Retourne la réf cellule de la médiane (ex. 'Comparables!G7')."""
     ws = wb.create_sheet("Comparables")
     widths = {"A": 10, "B": 22, "C": 14, "D": 13, "E": 14, "F": 14, "G": 11, "H": 10, "I": 32}
     for col, w in widths.items():
         ws.column_dimensions[col].width = w
-
-    agg = run.aggregate
     headers = ["Ticker", "Nom", "Market Cap", "Net Debt", "EV", f"Agrégat ({agg})", f"EV/{agg}", "Statut", "Note"]
     for c, h in enumerate(headers, 1):
         _header(ws, 1, c, h)
@@ -108,7 +107,7 @@ def _build_comps_sheet(wb, run, included, excluded) -> str:
     return f"Comparables!G{median_row}"
 
 
-def _build_synthese_sheet(wb, run, anchor, result, target_aggregate_value, median_ref: str):
+def _build_synthese_sheet(wb, run, anchor, result, target_aggregate_value, median_ref: str, comp_basis: str):
     ws = wb.create_sheet("Synthèse")
     ws.column_dimensions["A"].width = 40
     ws.column_dimensions["B"].width = 18
@@ -141,10 +140,10 @@ def _build_synthese_sheet(wb, run, anchor, result, target_aggregate_value, media
 
     line(8, "── Marché actuel ──", fill=CLR_SECTION, bold=True)
     # median_now référence l'onglet Comparables (auditable / recalculable)
-    line(9, "Median_now (médiane panel actuel)", formula=f"={median_ref}", fmt='0.00"x"',
+    line(9, f"Median_now (médiane panel, EV/{comp_basis})", formula=f"={median_ref}", fmt='0.00"x"',
          note="Référence l'onglet Comparables")
     line(10, "Drift ratio (median_now / m_market_entry)", formula="=B9/B6", fmt="0.000",
-         note="Ratio sans unité — dérive relative du marché")
+         note=f"Ratio sans unité (EV/{comp_basis}) — dérive relative du marché")
     line(11, "Facteur de rétention", run.retention_factor or 1.0, fmt="0.000",
          note="1.0 si non récurrent ou neutre")
 

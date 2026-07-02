@@ -13,7 +13,6 @@ Principe absolu :
 
 from valo.providers.base import TargetContext
 
-
 COMPS_SYSTEM = """
 Tu es un analyste senior en valorisation par comparables boursiers, spécialisé en construction
 de peer groups pour fonds d'investissement, M&A et private equity.

@@ -133,6 +133,13 @@ export const getTargets = () => http.get<Target[]>('/targets').then(r => r.data)
 export const getTarget = (id: number) => http.get<Target>(`/targets/${id}`).then(r => r.data)
 export const createTarget = (data: Partial<Target>) =>
   http.post<Target>('/targets', data).then(r => r.data)
+export const deleteTarget = (id: number) => http.delete(`/targets/${id}`)
+
+/** Extrait le message d'erreur métier renvoyé par l'API (FastAPI `detail`). */
+export function apiError(e: unknown, fallback: string): string {
+  const detail = (e as { response?: { data?: { detail?: string } } })?.response?.data?.detail
+  return typeof detail === 'string' ? detail : fallback
+}
 
 export const suggest = (targetId: number, body: { extra_tickers?: string[]; n_comps?: number; n_transactions?: number }) =>
   http.post<SuggestResponse>(`/targets/${targetId}/suggest`, body).then(r => r.data)

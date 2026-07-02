@@ -30,6 +30,22 @@ def list_targets(session: Session) -> list[Target]:
     return session.query(Target).order_by(Target.created_at.desc()).all()
 
 
+def delete_target(session: Session, target_id: int) -> None:
+    """Supprime une cible et tout ce qui en dépend (runs, run_comps, ancres, transactions liées).
+    Les comps/snapshots sont partagés entre cibles → conservés."""
+    target = session.get(Target, target_id)
+    if target is None:
+        raise ValueError(f"Cible {target_id} introuvable.")
+    run_ids = [r.id for r in session.query(ValuationRun).filter_by(target_id=target_id).all()]
+    if run_ids:
+        session.query(RunComp).filter(RunComp.run_id.in_(run_ids)).delete(synchronize_session=False)
+        session.query(ValuationRun).filter(ValuationRun.id.in_(run_ids)).delete(synchronize_session=False)
+    session.query(TargetAnchor).filter_by(target_id=target_id).delete(synchronize_session=False)
+    session.query(Transaction).filter_by(target_id=target_id).delete(synchronize_session=False)
+    session.delete(target)
+    session.flush()
+
+
 def create_anchor(session: Session, target_id: int, **kwargs) -> TargetAnchor:
     anchor = TargetAnchor(target_id=target_id, **kwargs)
     session.add(anchor)

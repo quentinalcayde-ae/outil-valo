@@ -12,6 +12,7 @@ from valo.schemas import (
 )
 from valo.storage.repositories import (
     create_target,
+    delete_target,
     get_anchors,
     get_target,
     list_targets,
@@ -36,6 +37,14 @@ def get_one(target_id: int, session: Session = Depends(get_session)):
     if target is None:
         raise HTTPException(status_code=404, detail="Cible introuvable.")
     return target
+
+
+@router.delete("/{target_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete(target_id: int, session: Session = Depends(get_session)):
+    try:
+        delete_target(session, target_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
 @router.get("/{target_id}/anchors", response_model=list[AnchorOut])

@@ -1,7 +1,7 @@
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Link } from 'react-router-dom'
-import { Plus, ChevronRight } from 'lucide-react'
-import { getTargets, type Target } from '../api'
+import { Plus, ChevronRight, Trash2 } from 'lucide-react'
+import { getTargets, deleteTarget, type Target } from '../api'
 import { PageHeader, Card, Badge, Button, Spinner, ErrorBox } from '../components/ui'
 
 export default function Dashboard() {
@@ -42,6 +42,12 @@ export default function Dashboard() {
 }
 
 function TargetRow({ target }: { target: Target }) {
+  const qc = useQueryClient()
+  const del = useMutation({
+    mutationFn: () => deleteTarget(target.id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['targets'] }),
+  })
+
   return (
     <Card className="flex items-center justify-between px-5 py-4 hover:border-brand/40 transition-colors">
       <div className="flex items-center gap-4">
@@ -58,11 +64,21 @@ function TargetRow({ target }: { target: Target }) {
           <Badge>{target.valuation_aggregate.toUpperCase()}</Badge>
         </div>
       </div>
-      <Link to={`/targets/${target.id}/panel`}>
-        <Button variant="secondary">
-          Nouveau run <ChevronRight size={14} />
-        </Button>
-      </Link>
+      <div className="flex items-center gap-2">
+        <Link to={`/targets/${target.id}/panel`}>
+          <Button variant="secondary">
+            Nouveau run <ChevronRight size={14} />
+          </Button>
+        </Link>
+        <button
+          onClick={() => { if (confirm(`Supprimer « ${target.name} » et tous ses runs ?`)) del.mutate() }}
+          disabled={del.isPending}
+          title="Supprimer la cible"
+          className="p-2 text-slate-300 hover:text-red-500 transition-colors disabled:opacity-50"
+        >
+          <Trash2 size={16} />
+        </button>
+      </div>
     </Card>
   )
 }

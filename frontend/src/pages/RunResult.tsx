@@ -4,7 +4,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { Play, Download, Check, X, Anchor as AnchorIcon } from 'lucide-react'
 import {
   getRun, getTarget, getAnchors, patchRunComps, computeAnchor, executeRun,
-  fmtM, fmtBn, type RunComp, type AnchorProposal,
+  fmtM, fmtBn, apiError, type RunComp, type AnchorProposal,
 } from '../api'
 import { PageHeader, Card, Button, Spinner, ErrorBox, Badge } from '../components/ui'
 
@@ -189,7 +189,7 @@ export default function RunResult() {
             </Button>
           </div>
           {!anchored && <p className="text-xs text-amber-600 mt-2">Ancrez d'abord la médiane marché ci-dessus.</p>}
-          {execMut.error && <ErrorBox message="Erreur au calcul. Vérifiez l'ancre et le panel." />}
+          {execMut.error && <ErrorBox message={apiError(execMut.error, "Erreur au calcul. Vérifiez l'ancre et le panel.")} />}
         </Card>
       )}
 

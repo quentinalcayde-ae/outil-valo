@@ -64,6 +64,11 @@ def execute_run(
     if not target_aggregate_value or target_aggregate_value <= 0:
         raise ValueError("Agrégat cible manquant — renseigner target.aggregate_value ou le passer au run.")
 
+    # Le drift (median_now / m_market_entry) est SANS UNITÉ : median_now se calcule sur le
+    # MÊME agrégat que l'ancre marché (basis), pas sur l'agrégat cible. Cas ARR : basis=revenue
+    # (l'ARR des comps nécessiterait l'extraction P4). Le M_final reste ancré sur l'agrégat cible.
+    comp_basis = anchor.market_anchor_basis or run.aggregate
+
     included_multiples: list[float] = []
     included_comps: list[dict] = []
     excluded_comps: list[dict] = []
@@ -96,7 +101,7 @@ def execute_run(
             rc.comp_snapshot = snap  # met à jour la relation (pas seulement le FK)
             session.flush()
 
-        agg_value = _pick_aggregate(snap, run.aggregate)
+        agg_value = _pick_aggregate(snap, comp_basis)
         multiple = None
         if snap.ev is not None and agg_value and agg_value > 0:
             multiple = snap.ev / agg_value
@@ -126,7 +131,13 @@ def execute_run(
             excluded_comps.append(entry)
 
     if not included_multiples:
-        raise ValueError("Panel vide après filtrage — aucun comp avec multiple calculable.")
+        extra = ""
+        if comp_basis in ("arr", "recurring"):
+            extra = (" L'agrégat comp est l'ARR : les comparables cotés n'ont pas d'ARR renseigné "
+                     "(extraction P4). Ancrez plutôt sur EV/Revenue (basis=revenue).")
+        raise ValueError(
+            f"Panel vide après filtrage — aucun comp avec multiple EV/{comp_basis} calculable.{extra}"
+        )
 
     inp = ValuationInput(
         mode=run.mode,
@@ -149,6 +160,7 @@ def execute_run(
         excluded_comps=excluded_comps,
         target_aggregate_value=target_aggregate_value,
         result_ev=result_ev,
+        comp_basis=comp_basis,
         output_dir=output_dir,
     )
 
