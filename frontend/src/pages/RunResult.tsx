@@ -20,6 +20,7 @@ export default function RunResult() {
   const { data: suggestions } = useQuery({ queryKey: ['suggestions', run?.target_id], queryFn: () => getSuggestions(run!.target_id), enabled: !!run })
 
   const anchor = anchors?.[anchors.length - 1]
+  const hasAnchorRow = !!anchor
   const anchored = anchor?.m_market_entry != null
 
   const [exclusions, setExclusions] = useState<Record<number, boolean>>({})
@@ -169,8 +170,8 @@ export default function RunResult() {
         </Card>
       )}
 
-      {/* Ancre marché */}
-      {!hasResult && (
+      {/* Ancre marché — uniquement si la cible a une ancre de tour (sinon valo directe) */}
+      {!hasResult && hasAnchorRow && (
         <Card className="p-5 mb-5">
           <h3 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-1.5">
             <AnchorIcon size={15} className="text-brand" /> Ancre marché (m_market_entry)
@@ -230,11 +231,12 @@ export default function RunResult() {
                 placeholder={target?.aggregate_value ? String(target.aggregate_value / 1e6) : '1.437'}
                 className="mt-1 block w-36 rounded-md border border-slate-300 px-3 py-1.5 text-sm" />
             </label>
-            <Button onClick={() => execMut.mutate()} disabled={execMut.isPending || !anchored}>
+            <Button onClick={() => execMut.mutate()} disabled={execMut.isPending || (hasAnchorRow && !anchored)}>
               <Play size={14} /> {execMut.isPending ? 'Calcul…' : 'Calculer la valo'}
             </Button>
           </div>
-          {!anchored && <p className="text-xs text-amber-600 mt-2">Ancrez d'abord la médiane marché ci-dessus.</p>}
+          {hasAnchorRow && !anchored && <p className="text-xs text-amber-600 mt-2">Ancrez d'abord la médiane marché ci-dessus.</p>}
+          {!hasAnchorRow && <p className="text-xs text-slate-500 mt-2">Valorisation directe (sans ancre) : la médiane des comparables sera appliquée telle quelle.</p>}
           {execMut.error && <ErrorBox message={apiError(execMut.error, "Erreur au calcul. Vérifiez l'ancre et le panel.")} />}
         </Card>
       )}

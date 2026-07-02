@@ -53,21 +53,25 @@ def execute_run(
 
     target: Target | None = session.get(Target, run.target_id)
     anchors = get_anchors(session, run.target_id)
-    if not anchors:
-        raise ValueError("Aucune ancre pour cette cible — créer/ancrer d'abord.")
-    anchor: TargetAnchor = anchors[-1]
-    if anchor.m_market_entry is None:
-        raise ValueError("Ancre marché non calculée — appeler /runs/{id}/anchor avant execute.")
+    anchor: TargetAnchor | None = anchors[-1] if anchors else None
+
+    # Mode : calibration par delta si l'ancre est complète (entry + médiane marché calculée),
+    # sinon valorisation directe par comparables (pas d'ancre / opportunité sans historique).
+    delta_mode = anchor is not None and anchor.m_market_entry is not None
+    if anchor is not None and anchor.m_entry_aggregate is not None and anchor.m_market_entry is None:
+        raise ValueError(
+            "Ancre définie mais médiane marché non calculée — lancez l'ancrage, "
+            "ou retirez l'ancre pour une valorisation directe."
+        )
 
     if target_aggregate_value is None:
         target_aggregate_value = target.aggregate_value if target else None
     if not target_aggregate_value or target_aggregate_value <= 0:
         raise ValueError("Agrégat cible manquant — renseigner target.aggregate_value ou le passer au run.")
 
-    # Le drift (median_now / m_market_entry) est SANS UNITÉ : median_now se calcule sur le
-    # MÊME agrégat que l'ancre marché (basis), pas sur l'agrégat cible. Cas ARR : basis=revenue
-    # (l'ARR des comps nécessiterait l'extraction P4). Le M_final reste ancré sur l'agrégat cible.
-    comp_basis = anchor.market_anchor_basis or run.aggregate
+    # Delta : median_now se calcule sur le MÊME agrégat que l'ancre marché (basis), le drift étant
+    # sans unité. Direct : median_now sur l'agrégat cible lui-même (on applique la médiane des pairs).
+    comp_basis = (anchor.market_anchor_basis or run.aggregate) if delta_mode else run.aggregate
 
     included_multiples: list[float] = []
     included_comps: list[dict] = []
@@ -141,9 +145,9 @@ def execute_run(
 
     inp = ValuationInput(
         mode=run.mode,
-        m_entry_aggregate=anchor.m_entry_aggregate,
-        m_market_entry=anchor.m_market_entry,
         comp_multiples=included_multiples,
+        m_entry_aggregate=anchor.m_entry_aggregate if delta_mode else None,
+        m_market_entry=anchor.m_market_entry if delta_mode else None,
         retention_factor=run.retention_factor or 1.0,
     )
     result = run_valuation(inp)

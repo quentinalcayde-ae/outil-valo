@@ -114,12 +114,21 @@ def test_execute_run_excluded_comp(session, tmp_path):
     assert ctx.result.median_now == pytest.approx(11.0)
 
 
-def test_execute_run_no_anchor_raises(session, tmp_path):
+def test_execute_run_no_anchor_direct_mode(session, tmp_path):
+    """Sans ancre → valorisation directe : M_final = médiane des comparables × rétention."""
     target = create_target(session, name="T", is_recurring=True, valuation_aggregate="revenue")
-    run = create_run(session, target_id=target.id, mode="A", aggregate="revenue")
+    run = create_run(session, target_id=target.id, mode="A", aggregate="revenue", retention_factor=1.0)
+    for ticker, mc, nd, rev in [("AAA", 110e6, 0, 10e6), ("BBB", 240e6, 0, 20e6)]:  # 11x, 12x
+        comp = create_comp(session, name=ticker, ticker=ticker, currency="USD", is_recurring=True)
+        snap = insert_snapshot(session, comp.id, _make_snap(ticker, mc, nd, rev))
+        add_run_comp(session, run_id=run.id, comp_id=comp.id, snapshot_id=snap.id, included=True)
     session.flush()
-    with pytest.raises(ValueError, match="Aucune ancre"):
-        execute_run(session, run.id, target_aggregate_value=1e6, output_dir=str(tmp_path))
+
+    ctx = execute_run(session, run.id, target_aggregate_value=5e6, output_dir=str(tmp_path))
+    assert ctx.result.calibrated is False
+    assert ctx.result.median_now == pytest.approx(11.5)  # médiane [11, 12]
+    assert ctx.result.m_final == pytest.approx(11.5)
+    assert ctx.run.result_ev == pytest.approx(11.5 * 5e6)
 
 
 def test_excel_file_created(session, tmp_path):

@@ -138,7 +138,7 @@ class PanelCreate(BaseModel):
     mode: str = Field(default="A", pattern="^[AB]$")
     aggregate: str
     retention_factor: float = 1.0
-    anchor: AnchorEntryIn
+    anchor: AnchorEntryIn | None = None  # None → valorisation directe (sans ancre)
 
 
 class RunCompPatch(BaseModel):

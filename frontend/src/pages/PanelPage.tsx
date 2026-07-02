@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
 import { Plus, Trash2, Sparkles, ArrowRight, CheckCircle2, AlertTriangle } from 'lucide-react'
-import { getTarget, suggest, getSuggestions, createPanel, resolveTickers, type SuggestResponse, type ResolveItem } from '../api'
+import { getTarget, suggest, getSuggestions, getAnchors, createPanel, resolveTickers, type SuggestResponse, type ResolveItem } from '../api'
 import { PageHeader, Card, Input, Select, Button, Spinner, ErrorBox } from '../components/ui'
 
 interface Row { ticker: string; name: string; relevance_note: string; included: boolean }
@@ -65,9 +65,24 @@ export default function PanelPage() {
 
   const [mode, setMode] = useState<'A' | 'B'>('A')
   const [retention, setRetention] = useState('1.0')
+  const [useAnchor, setUseAnchor] = useState(true)
   const [entryDate, setEntryDate] = useState('')
   const [entryRound, setEntryRound] = useState('')
   const [mEntry, setMEntry] = useState('')
+
+  // Pré-remplit l'ancre depuis la cible si elle a déjà été saisie (pas de re-saisie à chaque run)
+  useEffect(() => {
+    if (!target) return
+    getAnchors(id).then(anchors => {
+      const a = anchors[anchors.length - 1]
+      if (a) {
+        setEntryDate(a.entry_date ?? '')
+        setEntryRound(a.entry_round ?? '')
+        setMEntry(a.m_entry_aggregate != null ? String(a.m_entry_aggregate) : '')
+        setUseAnchor(true)
+      }
+    })
+  }, [target?.id]) // eslint-disable-line
 
   const addRow = () => setRows(r => [...r, { ticker: '', name: '', relevance_note: '', included: true }])
   const rmRow = (i: number) => setRows(r => r.filter((_, idx) => idx !== i))
@@ -83,7 +98,9 @@ export default function PanelPage() {
       mode,
       aggregate: target!.valuation_aggregate,
       retention_factor: parseFloat(retention) || 1.0,
-      anchor: { entry_date: entryDate, entry_round: entryRound || null, m_entry_aggregate: parseFloat(mEntry) },
+      anchor: useAnchor && entryDate && mEntry
+        ? { entry_date: entryDate, entry_round: entryRound || null, m_entry_aggregate: parseFloat(mEntry) }
+        : null,
     }),
     onSuccess: (run) => nav(`/runs/${run.id}`),
   })
@@ -177,31 +194,53 @@ export default function PanelPage() {
         </Card>
       )}
 
-      {/* Ancres d'entrée */}
+      {/* Ancres d'entrée (optionnelles) */}
       <Card className="mb-5 p-5">
-        <h3 className="text-sm font-semibold text-slate-700 mb-3">Ancres du tour d'entrée</h3>
-        <div className="grid grid-cols-2 gap-3">
-          <Input label="Date du tour *" type="date" value={entryDate} onChange={e => setEntryDate(e.target.value)} />
-          <Input label="Libellé tour" value={entryRound} onChange={e => setEntryRound(e.target.value)} placeholder="Série B" />
-          <Input label={`M_entry (EV/${target.valuation_aggregate} au tour) *`} type="number" step="0.01"
-            value={mEntry} onChange={e => setMEntry(e.target.value)} placeholder="8.0" />
+        <label className="flex items-center gap-2 text-sm font-medium text-slate-700 mb-3">
+          <input type="checkbox" checked={useAnchor} onChange={e => setUseAnchor(e.target.checked)} />
+          Utiliser une ancre de tour (calibration IPEV par delta)
+        </label>
+
+        {useAnchor ? (
+          <>
+            <div className="grid grid-cols-2 gap-3">
+              <Input label="Date du tour *" type="date" value={entryDate} onChange={e => setEntryDate(e.target.value)} />
+              <Input label="Libellé tour" value={entryRound} onChange={e => setEntryRound(e.target.value)} placeholder="Série B" />
+              <Input label={`M_entry (EV/${target.valuation_aggregate} au tour) *`} type="number" step="any"
+                value={mEntry} onChange={e => setMEntry(e.target.value)} placeholder="8.0" />
+              <Input label="Facteur rétention" type="number" step="any" value={retention} onChange={e => setRetention(e.target.value)} />
+            </div>
+            <p className="text-xs text-slate-400 mt-2">
+              La médiane marché au tour (m_market_entry) sera calculée automatiquement à l'étape suivante.
+            </p>
+          </>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 gap-3">
+              <Input label="Facteur rétention" type="number" step="any" value={retention} onChange={e => setRetention(e.target.value)} />
+            </div>
+            <p className="text-xs text-amber-600 mt-2">
+              Valorisation directe : la médiane des comparables sera appliquée telle quelle
+              (M_final = médiane × rétention), sans référence à un tour d'entrée.
+            </p>
+          </>
+        )}
+        <div className="mt-3">
           <Select label="Mode" value={mode} onChange={e => setMode(e.target.value as 'A' | 'B')}>
             <option value="A">MODE A — amorçage</option>
             <option value="B">MODE B — trimestriel</option>
           </Select>
-          <Input label="Facteur rétention" type="number" step="0.01" value={retention} onChange={e => setRetention(e.target.value)} />
         </div>
-        <p className="text-xs text-slate-400 mt-2">
-          La médiane marché au tour (m_market_entry) sera calculée automatiquement à l'étape suivante.
-        </p>
       </Card>
 
-      {panelMut.error && <ErrorBox message="Erreur lors de la création du panel. Vérifiez les ancres et au moins un comp inclus." />}
+      {panelMut.error && <ErrorBox message="Erreur lors de la création du panel. Vérifiez qu'au moins un comparable est inclus (et l'ancre si activée)." />}
 
       <div className="flex justify-end gap-2">
         <Button variant="secondary" onClick={() => nav('/')}>Annuler</Button>
         <Button onClick={() => panelMut.mutate()}
-          disabled={panelMut.isPending || !entryDate || !mEntry || rows.filter(r => r.included && r.ticker).length === 0}>
+          disabled={panelMut.isPending
+            || (useAnchor && (!entryDate || !mEntry))
+            || rows.filter(r => r.included && r.ticker).length === 0}>
           {panelMut.isPending ? 'Création…' : 'Valider le panel'} <ArrowRight size={14} />
         </Button>
       </div>

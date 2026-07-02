@@ -171,7 +171,7 @@ export interface PanelBody {
   mode: 'A' | 'B'
   aggregate: string
   retention_factor: number
-  anchor: { entry_date: string; entry_round?: string | null; m_entry_aggregate: number }
+  anchor: { entry_date: string; entry_round?: string | null; m_entry_aggregate: number } | null
 }
 
 export const createPanel = (targetId: number, body: PanelBody) =>

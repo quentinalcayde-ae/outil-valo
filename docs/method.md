@@ -55,6 +55,13 @@ Feuille **Valo** : toutes les cellules clés sont des formules Excel (pas de val
 - **Cas ARR** : pas d'ARR historique → override manuel du multiple (`source=manual`, `basis=arr`) ou ancre sur EV/Revenue. Le ratio de dérive étant sans unité, le mark reste valide.
 - Valeur toujours **surchargeable** (ancre gelée à vie).
 
+## Deux régimes : calibration delta vs comparables directs
+
+- **Calibration par delta** (ancre présente) : `M_final = M_entry × (median_now / m_market_entry) × rétention`.
+- **Comparables directs** (aucune ancre) : `M_final = median_now × rétention`. Pour une opportunité sans historique / sans tour de référence — on applique directement la médiane des pairs. `median_now` est alors calculé sur l'**agrégat cible** lui-même (pas de drift sans unité).
+
+Le régime est choisi automatiquement dans `execute_run` selon la présence d'une ancre complète (`ValuationResult.calibrated`). L'ancre est **optionnelle** et **persistée par cible** (une seule ligne `target_anchors`, mise à jour, pas recréée à chaque run).
+
 ## MODE A vs MODE B
 
 | MODE | Usage | Comportement |

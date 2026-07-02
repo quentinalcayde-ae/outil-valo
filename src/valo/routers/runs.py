@@ -41,12 +41,26 @@ def create_panel(target_id: int, body: PanelCreate, session: Session = Depends(g
     if target is None:
         raise HTTPException(status_code=404, detail="Cible introuvable.")
 
-    create_anchor(
-        session, target_id,
-        entry_date=body.anchor.entry_date,
-        entry_round=body.anchor.entry_round,
-        m_entry_aggregate=body.anchor.m_entry_aggregate,
-    )
+    # Ancre optionnelle et persistée par cible : on met à jour l'ancre existante si fournie,
+    # on en crée une seule si besoin, on ne touche à rien si aucune ancre n'est fournie
+    # (→ valorisation directe par comparables).
+    if body.anchor is not None:
+        existing = get_anchors(session, target_id)
+        if existing:
+            a = existing[-1]
+            a.entry_date = body.anchor.entry_date
+            a.entry_round = body.anchor.entry_round
+            a.m_entry_aggregate = body.anchor.m_entry_aggregate
+            # entrée modifiée → l'ancre marché devra être recalculée
+            a.m_market_entry = None
+            a.market_anchor_basis = None
+        else:
+            create_anchor(
+                session, target_id,
+                entry_date=body.anchor.entry_date,
+                entry_round=body.anchor.entry_round,
+                m_entry_aggregate=body.anchor.m_entry_aggregate,
+            )
 
     run = create_run(
         session,
