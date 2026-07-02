@@ -44,6 +44,7 @@ def execute_run(
     session: Session,
     run_id: int,
     target_aggregate_value: float | None = None,
+    target_growth_now: float | None = None,
     provider: MarketDataProvider | None = None,
     output_dir: str = "exports",
 ) -> RunContext:
@@ -68,6 +69,12 @@ def execute_run(
         target_aggregate_value = target.aggregate_value if target else None
     if not target_aggregate_value or target_aggregate_value <= 0:
         raise ValueError("Agrégat cible manquant — renseigner target.aggregate_value ou le passer au run.")
+
+    # Croissance actuelle de la cible : valeur passée au run (prioritaire) sinon celle de la cible.
+    # On la persiste sur la cible pour l'affichage/reproductibilité.
+    if target_growth_now is not None and target is not None:
+        target.growth_now = target_growth_now
+    effective_growth_now = target_growth_now if target_growth_now is not None else (target.growth_now if target else None)
 
     # Delta : median_now se calcule sur le MÊME agrégat que l'ancre marché (basis), le drift étant
     # sans unité. Direct : median_now sur l'agrégat cible lui-même (on applique la médiane des pairs).
@@ -152,7 +159,7 @@ def execute_run(
         comp_growths=included_growths,
         m_entry_aggregate=anchor.m_entry_aggregate if delta_mode else None,
         m_market_entry=anchor.m_market_entry if delta_mode else None,
-        target_growth_now=target.growth_now if target else None,
+        target_growth_now=effective_growth_now,
         target_growth_entry=anchor.entry_growth if delta_mode else None,
         entry_panel_growth=anchor.entry_panel_growth if delta_mode else None,
         other_deltas=run.other_deltas or 0.0,
@@ -187,6 +194,9 @@ def execute_run(
         result_ev=result_ev,
         result_equity=result_equity,
         excel_path=excel_path,
+        beta=result.beta,
+        growth_delta=result.growth_delta,
+        growth_gap=result.growth_gap,
     )
 
     return RunContext(

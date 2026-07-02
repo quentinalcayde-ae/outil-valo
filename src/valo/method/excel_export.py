@@ -154,28 +154,28 @@ def _build_synthese_sheet(wb, run, anchor, result, target_aggregate_value, media
         line(11, "Base = M_entry × dérive", formula="=B5*B10", fmt='0.00"x"')
 
         line(13, "── Ajustement de croissance ──", fill=CLR_SECTION, bold=True)
-        line(14, "β (pente panel)", beta_txt, fmt='0.000"x/pt"', note=growth_note)
+        line(14, "β (pente panel, x par unité de croissance)", beta_txt, fmt='0.000"x"', note=growth_note)
         line(15, "Écart de croissance retenu (Δ, clampé)", gap_txt, fmt="0.0%")
         line(16, "Δ croissance = β × écart", result.growth_delta, fmt='0.00"x"')
         line(17, "Autres deltas société (marge/NRR/taille)", result.other_deltas, fmt='0.00"x"')
 
         line(19, "── Résultat ──", fill=CLR_SECTION, bold=True)
-        line(20, f"M_final (EV/{run.aggregate} retenu)", formula="=B11+B16+B17", fmt='0.00"x"',
-             note=f"base + Δcroissance + autres deltas [MODE {run.mode}]", bold=True, fill=CLR_RESULT)
+        line(20, f"M_final (EV/{run.aggregate} retenu)", formula="=MAX(0,B11+B16+B17)", fmt='0.00"x"',
+             note=f"max(0 ; base + Δcroissance + autres deltas) [MODE {run.mode}]", bold=True, fill=CLR_RESULT)
         ev_row, method_note = 21, "Méthode : IPEV — maintien du delta + ajustement de croissance (β)."
     else:
         line(2, "── Base marché (comparables directs) ──", fill=CLR_SECTION, bold=True)
         line(3, f"Median_now (panel, EV/{comp_basis})", formula=f"={median_ref}", fmt='0.00"x"')
 
         line(5, "── Ajustement de croissance ──", fill=CLR_SECTION, bold=True)
-        line(6, "β (pente panel)", beta_txt, fmt='0.000"x/pt"', note=growth_note)
+        line(6, "β (pente panel, x par unité de croissance)", beta_txt, fmt='0.000"x"', note=growth_note)
         line(7, "Écart de croissance retenu (Δ, clampé)", gap_txt, fmt="0.0%")
         line(8, "Δ croissance = β × écart", result.growth_delta, fmt='0.00"x"')
         line(9, "Autres deltas société", result.other_deltas, fmt='0.00"x"')
 
         line(11, "── Résultat ──", fill=CLR_SECTION, bold=True)
-        line(12, f"M_final (EV/{run.aggregate} retenu)", formula="=B3+B8+B9", fmt='0.00"x"',
-             note="médiane + Δcroissance + autres deltas (valo directe, sans ancre)", bold=True, fill=CLR_RESULT)
+        line(12, f"M_final (EV/{run.aggregate} retenu)", formula="=MAX(0,B3+B8+B9)", fmt='0.00"x"',
+             note="max(0 ; médiane + Δcroissance + autres deltas) — valo directe", bold=True, fill=CLR_RESULT)
         ev_row, method_note = 13, "Méthode : valorisation directe par comparables (sans ancre) + ajustement de croissance."
 
     mfinal_ref = f"B{ev_row - 1}"

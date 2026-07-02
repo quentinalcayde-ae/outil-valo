@@ -127,7 +127,9 @@ def run_valuation(inp: ValuationInput) -> ValuationResult:
             growth_gap = min(max(gap, lo), hi)
             growth_delta = beta * growth_gap
 
-    m_final = base + growth_delta + inp.other_deltas
+    # Garde-fou de validité : un multiple d'EV ne peut pas être négatif (β raide × sous-perf
+    # sur petit panel peut sinon faire passer M_final sous zéro — cas dénué de sens).
+    m_final = max(0.0, base + growth_delta + inp.other_deltas)
 
     return ValuationResult(
         median_now=median_now,

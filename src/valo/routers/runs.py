@@ -194,6 +194,7 @@ def execute(
         ctx = execute_run(
             session, run_id,
             target_aggregate_value=body.target_aggregate_value,
+            target_growth_now=body.target_growth_now,
             provider=provider,
         )
     except ValueError as exc:
@@ -222,6 +223,10 @@ def _enrich_run(run) -> dict:
         "aggregate": run.aggregate,
         "median_now": run.median_now,
         "retention_factor": run.retention_factor,
+        "other_deltas": run.other_deltas,
+        "beta": run.beta,
+        "growth_delta": run.growth_delta,
+        "growth_gap": run.growth_gap,
         "m_final": run.m_final,
         "result_ev": run.result_ev,
         "result_equity": run.result_equity,

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
 import { Play, Download, Check, X, Anchor as AnchorIcon } from 'lucide-react'
@@ -27,6 +27,11 @@ export default function RunResult() {
   const [proposal, setProposal] = useState<AnchorProposal | null>(null)
   const [manualAnchor, setManualAnchor] = useState('')
   const [targetAgg, setTargetAgg] = useState('')
+  const [growthNow, setGrowthNow] = useState('')
+
+  useEffect(() => {
+    if (target?.growth_now != null) setGrowthNow(String(target.growth_now * 100))
+  }, [target?.growth_now])
 
   const patchMut = useMutation({
     mutationFn: () => patchRunComps(id, run!.run_comps.map(rc => ({
@@ -47,7 +52,11 @@ export default function RunResult() {
   })
 
   const execMut = useMutation({
-    mutationFn: () => executeRun(id, targetAgg ? parseFloat(targetAgg) * 1e6 : undefined),
+    mutationFn: () => executeRun(
+      id,
+      targetAgg ? parseFloat(targetAgg) * 1e6 : undefined,
+      growthNow ? parseFloat(growthNow) / 100 : undefined,
+    ),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['run', id] }),
   })
 
@@ -69,6 +78,20 @@ export default function RunResult() {
             <Metric label="M_final" value={fmtM(run.m_final)} highlight />
             <Metric label="EV cible" value={fmtBn(run.result_ev) + ' €'} />
             <Metric label="Equity (− dette nette)" value={fmtBn(run.result_equity) + ' €'} highlight />
+          </div>
+          {/* Décomposition de l'ajustement de croissance */}
+          <div className="mt-3 text-xs text-slate-600 bg-white/60 rounded-md px-3 py-2">
+            {run.growth_delta ? (
+              <>Ajustement de croissance : <b>{run.growth_delta > 0 ? '+' : ''}{run.growth_delta.toFixed(2)}x</b>
+                {' '}(β = {run.beta?.toFixed(2)}x par +100 pts · écart retenu {run.growth_gap != null ? (run.growth_gap * 100).toFixed(0) + ' pts' : '—'})
+                {run.other_deltas ? ` · autres deltas ${run.other_deltas > 0 ? '+' : ''}${run.other_deltas.toFixed(2)}x` : ''}</>
+            ) : (
+              <span className="text-amber-600">
+                Ajustement de croissance non appliqué — {run.beta == null
+                  ? 'pente β non calculable (comps sans croissance ou < 3 comps)'
+                  : 'croissance de la cible manquante (renseignez-la et relancez)'}.
+              </span>
+            )}
           </div>
           {run.excel_path && (
             <a href={`/api/runs/${run.id}/excel`}
@@ -231,10 +254,19 @@ export default function RunResult() {
                 placeholder={target?.aggregate_value ? String(target.aggregate_value / 1e6) : '1.437'}
                 className="mt-1 block w-36 rounded-md border border-slate-300 px-3 py-1.5 text-sm" />
             </label>
+            <label className="block">
+              <span className="text-sm font-medium text-slate-700">Croissance actuelle (% YoY)</span>
+              <input type="number" step="any" value={growthNow} onChange={e => setGrowthNow(e.target.value)}
+                placeholder="45"
+                className="mt-1 block w-36 rounded-md border border-slate-300 px-3 py-1.5 text-sm" />
+            </label>
             <Button onClick={() => execMut.mutate()} disabled={execMut.isPending || (hasAnchorRow && !anchored)}>
               <Play size={14} /> {execMut.isPending ? 'Calcul…' : 'Calculer la valo'}
             </Button>
           </div>
+          <p className="text-xs text-slate-400 mt-1">
+            La croissance actuelle alimente l'ajustement de croissance (β) vs le panel. Sans elle, le terme est omis.
+          </p>
           {hasAnchorRow && !anchored && <p className="text-xs text-amber-600 mt-2">Ancrez d'abord la médiane marché ci-dessus.</p>}
           {!hasAnchorRow && <p className="text-xs text-slate-500 mt-2">Valorisation directe (sans ancre) : la médiane des comparables sera appliquée telle quelle.</p>}
           {execMut.error && <ErrorBox message={apiError(execMut.error, "Erreur au calcul. Vérifiez l'ancre et le panel.")} />}

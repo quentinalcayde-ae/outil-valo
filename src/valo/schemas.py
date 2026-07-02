@@ -183,6 +183,7 @@ class AnchorProposalOut(BaseModel):
 
 class RunExecuteIn(BaseModel):
     target_aggregate_value: float | None = None  # défaut : target.aggregate_value
+    target_growth_now: float | None = None        # croissance actuelle cible (décimal) ; défaut : target.growth_now
 
 
 class RunCompOut(BaseModel):
@@ -206,6 +207,10 @@ class RunOut(BaseModel):
     aggregate: str
     median_now: float | None
     retention_factor: float | None
+    other_deltas: float | None
+    beta: float | None
+    growth_delta: float | None
+    growth_gap: float | None
     m_final: float | None
     result_ev: float | None
     result_equity: float | None

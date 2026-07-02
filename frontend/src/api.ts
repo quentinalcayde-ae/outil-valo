@@ -86,6 +86,10 @@ export interface Run {
   aggregate: string
   median_now: number | null
   retention_factor: number | null
+  other_deltas: number | null
+  beta: number | null
+  growth_delta: number | null
+  growth_gap: number | null
   m_final: number | null
   result_ev: number | null
   result_equity: number | null
@@ -184,8 +188,11 @@ export const patchRunComps = (runId: number, comps: object[]) =>
   http.patch<Run>(`/runs/${runId}/comps`, { comps }).then(r => r.data)
 export const computeAnchor = (runId: number, body: { manual_value?: number; basis?: string }) =>
   http.post<AnchorProposal>(`/runs/${runId}/anchor`, body).then(r => r.data)
-export const executeRun = (runId: number, targetAggregateValue?: number) =>
-  http.post<Run>(`/runs/${runId}/execute`, { target_aggregate_value: targetAggregateValue ?? null }).then(r => r.data)
+export const executeRun = (runId: number, targetAggregateValue?: number, targetGrowthNow?: number) =>
+  http.post<Run>(`/runs/${runId}/execute`, {
+    target_aggregate_value: targetAggregateValue ?? null,
+    target_growth_now: targetGrowthNow ?? null,
+  }).then(r => r.data)
 
 // ── Transactions ──────────────────────────────────────────────────────────────
 
