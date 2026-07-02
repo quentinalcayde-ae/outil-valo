@@ -88,6 +88,7 @@ export interface Run {
   retention_factor: number | null
   other_deltas: number | null
   beta: number | null
+  growth_r2: number | null
   growth_delta: number | null
   growth_gap: number | null
   m_final: number | null

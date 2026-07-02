@@ -209,6 +209,7 @@ class RunOut(BaseModel):
     retention_factor: float | None
     other_deltas: float | None
     beta: float | None
+    growth_r2: float | None
     growth_delta: float | None
     growth_gap: float | None
     m_final: float | None

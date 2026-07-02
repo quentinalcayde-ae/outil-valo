@@ -195,6 +195,7 @@ def execute_run(
         result_equity=result_equity,
         excel_path=excel_path,
         beta=result.beta,
+        growth_r2=result.growth_r2,
         growth_delta=result.growth_delta,
         growth_gap=result.growth_gap,
     )

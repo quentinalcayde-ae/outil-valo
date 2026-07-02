@@ -83,7 +83,7 @@ export default function RunResult() {
           <div className="mt-3 text-xs text-slate-600 bg-white/60 rounded-md px-3 py-2">
             {run.growth_delta ? (
               <>Ajustement de croissance : <b>{run.growth_delta > 0 ? '+' : ''}{run.growth_delta.toFixed(2)}x</b>
-                {' '}(β = {run.beta?.toFixed(2)}x par +100 pts · écart retenu {run.growth_gap != null ? (run.growth_gap * 100).toFixed(0) + ' pts' : '—'})
+                {' '}(β = {run.beta?.toFixed(2)}x/unité · confiance R² = {run.growth_r2 != null ? (run.growth_r2 * 100).toFixed(0) + '%' : '—'} · écart retenu {run.growth_gap != null ? (run.growth_gap * 100).toFixed(0) + ' pts' : '—'})
                 {run.other_deltas ? ` · autres deltas ${run.other_deltas > 0 ? '+' : ''}${run.other_deltas.toFixed(2)}x` : ''}</>
             ) : (
               <span className="text-amber-600">

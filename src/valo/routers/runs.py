@@ -225,6 +225,7 @@ def _enrich_run(run) -> dict:
         "retention_factor": run.retention_factor,
         "other_deltas": run.other_deltas,
         "beta": run.beta,
+        "growth_r2": run.growth_r2,
         "growth_delta": run.growth_delta,
         "growth_gap": run.growth_gap,
         "m_final": run.m_final,

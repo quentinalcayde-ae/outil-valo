@@ -96,6 +96,27 @@ def test_delta_mode_growth_since_round():
     assert r.m_final == pytest.approx(7.6 + 1.5, rel=0.02)
 
 
+def test_r2_shrinkage_noisy_panel():
+    # Panel bruité (croissance ne prédit pas le multiple) → R² faible → Δ fortement amorti.
+    mults = [10.0, 3.0, 12.0, 4.0, 11.0]
+    grows = [0.10, 0.20, 0.30, 0.40, 0.50]  # aucune relation nette
+    inp = ValuationInput(mode="A", comp_multiples=mults, comp_growths=grows, target_growth_now=0.50)
+    r = run_valuation(inp)
+    assert r.growth_r2 is not None and r.growth_r2 < 0.3  # panel peu explicatif
+    # Δ = R² × β × écart : bien plus petit que β × écart brut
+    raw = (r.beta or 0) * (r.growth_gap or 0)
+    assert abs(r.growth_delta) < abs(raw)
+
+
+def test_r2_shrinkage_perfect_panel_full_effect():
+    # Relation parfaite → R² = 1 → aucun amortissement
+    mults = [8.0, 9.0, 10.0, 11.0]
+    grows = [0.10, 0.20, 0.30, 0.40]
+    inp = ValuationInput(mode="A", comp_multiples=mults, comp_growths=grows, target_growth_now=0.35)
+    r = run_valuation(inp)
+    assert r.growth_r2 == pytest.approx(1.0, abs=1e-6)
+
+
 def test_beta_omitted_few_comps():
     # < 3 comps avec croissance → pas de β → pas de terme de croissance
     inp = ValuationInput(mode="A", comp_multiples=[10.0, 12.0], comp_growths=[0.2, 0.3],

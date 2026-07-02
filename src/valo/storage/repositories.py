@@ -212,6 +212,7 @@ def update_run_result(
     result_equity: float | None,
     excel_path: str | None = None,
     beta: float | None = None,
+    growth_r2: float | None = None,
     growth_delta: float | None = None,
     growth_gap: float | None = None,
 ) -> ValuationRun:
@@ -224,6 +225,7 @@ def update_run_result(
     run.result_equity = result_equity
     run.excel_path = excel_path
     run.beta = beta
+    run.growth_r2 = growth_r2
     run.growth_delta = growth_delta
     run.growth_gap = growth_gap
     session.flush()

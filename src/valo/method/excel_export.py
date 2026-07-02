@@ -136,9 +136,12 @@ def _build_synthese_sheet(wb, run, anchor, result, target_aggregate_value, media
 
     beta_txt = result.beta if result.beta is not None else "n/a"
     gap_txt = result.growth_gap if result.growth_gap is not None else "n/a"
-    growth_note = ("base trailing (yfinance) — β = prix d'un tour par point de croissance"
-                   if result.beta is not None
-                   else "croissance non exploitable (β indisponible) → terme omis")
+    if result.beta is not None:
+        r2_pct = f"{result.growth_r2 * 100:.0f}%" if result.growth_r2 is not None else "n/a"
+        growth_note = (f"base trailing — Δ = R² × β × écart (R² confiance = {r2_pct} ; "
+                       "amortit les panels bruités)")
+    else:
+        growth_note = "croissance non exploitable (β indisponible, <3 comps) → terme omis"
 
     if result.calibrated:
         line(2, "── Ancre tour d'entrée ──", fill=CLR_SECTION, bold=True)
