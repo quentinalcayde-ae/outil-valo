@@ -1,4 +1,4 @@
-import { type ReactNode } from 'react'
+import { forwardRef, type ReactNode } from 'react'
 import { clsx } from 'clsx'
 
 export function PageHeader({ title, sub }: { title: string; sub?: string }) {
@@ -64,11 +64,15 @@ export function Button({
   )
 }
 
-export function Input({ label, error, ...props }: { label: string; error?: string } & React.InputHTMLAttributes<HTMLInputElement>) {
+export const Input = forwardRef<
+  HTMLInputElement,
+  { label: string; error?: string } & React.InputHTMLAttributes<HTMLInputElement>
+>(function Input({ label, error, ...props }, ref) {
   return (
     <label className="block">
       <span className="text-sm font-medium text-slate-700">{label}</span>
       <input
+        ref={ref}
         {...props}
         className={clsx(
           'mt-1 block w-full rounded-md border px-3 py-1.5 text-sm shadow-sm outline-none focus:ring-2 focus:ring-brand/40',
@@ -78,13 +82,17 @@ export function Input({ label, error, ...props }: { label: string; error?: strin
       {error && <p className="mt-0.5 text-xs text-red-600">{error}</p>}
     </label>
   )
-}
+})
 
-export function Select({ label, children, ...props }: { label: string } & React.SelectHTMLAttributes<HTMLSelectElement>) {
+export const Select = forwardRef<
+  HTMLSelectElement,
+  { label: string } & React.SelectHTMLAttributes<HTMLSelectElement>
+>(function Select({ label, children, ...props }, ref) {
   return (
     <label className="block">
       <span className="text-sm font-medium text-slate-700">{label}</span>
       <select
+        ref={ref}
         {...props}
         className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-1.5 text-sm shadow-sm outline-none focus:ring-2 focus:ring-brand/40"
       >
@@ -92,7 +100,7 @@ export function Select({ label, children, ...props }: { label: string } & React.
       </select>
     </label>
   )
-}
+})
 
 export function Spinner() {
   return (

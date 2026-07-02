@@ -73,10 +73,10 @@ export default function TargetNew() {
           </div>
 
           <div className="grid grid-cols-2 gap-4">
-            <Input label={`${agg?.toUpperCase() ?? 'Agrégat'} courant (M€)`} type="number" step="0.1"
-              {...register('aggregate_value')} placeholder="8.0" />
-            <Input label="Dette nette (M€)" type="number" step="0.1"
-              {...register('net_debt')} placeholder="0" />
+            <Input label={`${agg?.toUpperCase() ?? 'Agrégat'} courant (M€)`} type="number" step="any"
+              {...register('aggregate_value')} placeholder="1.437" />
+            <Input label="Dette nette (M€)" type="number" step="any"
+              {...register('net_debt')} placeholder="0.3" />
           </div>
 
           <Select label="Fonds" {...register('fund')}>

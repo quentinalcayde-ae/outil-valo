@@ -180,8 +180,8 @@ export default function RunResult() {
           <div className="flex items-end gap-3">
             <label className="block">
               <span className="text-sm font-medium text-slate-700">Agrégat cible ({run.aggregate.toUpperCase()}) M€</span>
-              <input type="number" step="0.1" value={targetAgg} onChange={e => setTargetAgg(e.target.value)}
-                placeholder={target?.aggregate_value ? String(target.aggregate_value / 1e6) : '8.0'}
+              <input type="number" step="any" value={targetAgg} onChange={e => setTargetAgg(e.target.value)}
+                placeholder={target?.aggregate_value ? String(target.aggregate_value / 1e6) : '1.437'}
                 className="mt-1 block w-36 rounded-md border border-slate-300 px-3 py-1.5 text-sm" />
             </label>
             <Button onClick={() => execMut.mutate()} disabled={execMut.isPending || !anchored}>
