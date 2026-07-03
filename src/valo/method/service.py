@@ -1,9 +1,9 @@
 """Service d'orchestration d'un run de valo — voir PROJECT_V1.md §5.
 
-Flux : le panel (identité des comps) est fixé en amont. À l'execute, on fait la
-recherche financière (snapshot live par comp), on gèle les snapshots, on calcule
-la médiane sur les inclus, on applique la calibration delta, on génère l'Excel.
-L'ancre marché (m_market_entry) doit avoir été calculée/confirmée au préalable.
+Flux : le panel (identité + tier/statut des comps) est fixé en amont. À l'execute, on fait la
+recherche financière (snapshot live par comp), on gèle les snapshots, on calcule la médiane sur
+le set PRICED (proxies tier 3 exclus en dur), on applique la base marché + les deltas société
+manuels, on lève des flags de robustesse, on génère l'Excel.
 """
 from dataclasses import dataclass
 from pathlib import Path
@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from valo.method.excel_export import export_excel
 from valo.method.valuation import ValuationInput, ValuationResult, run_valuation
-from valo.models import CompSnapshot, Target, TargetAnchor, ValuationRun
+from valo.models import CompSnapshot, RunComp, Target, TargetAnchor, ValuationRun
 from valo.providers.base import MarketDataProvider
 from valo.storage.repositories import (
     get_anchors,
@@ -40,11 +40,17 @@ def _pick_aggregate(snap: CompSnapshot, aggregate_key: str) -> float | None:
     return None
 
 
+def _is_priced(rc: RunComp) -> bool:
+    """Compte dans la médiane uniquement si inclus, statut priced, et pas un proxy tier 3."""
+    return bool(rc.included) and (rc.statut or "priced") == "priced" and rc.tier != 3
+
+
 def execute_run(
     session: Session,
     run_id: int,
     target_aggregate_value: float | None = None,
-    target_growth_now: float | None = None,
+    growth_delta: float | None = None,
+    other_deltas: float | None = None,
     provider: MarketDataProvider | None = None,
     output_dir: str = "exports",
 ) -> RunContext:
@@ -56,8 +62,6 @@ def execute_run(
     anchors = get_anchors(session, run.target_id)
     anchor: TargetAnchor | None = anchors[-1] if anchors else None
 
-    # Mode : calibration par delta si l'ancre est complète (entry + médiane marché calculée),
-    # sinon valorisation directe par comparables (pas d'ancre / opportunité sans historique).
     delta_mode = anchor is not None and anchor.m_market_entry is not None
     if anchor is not None and anchor.m_entry_aggregate is not None and anchor.m_market_entry is None:
         raise ValueError(
@@ -70,23 +74,19 @@ def execute_run(
     if not target_aggregate_value or target_aggregate_value <= 0:
         raise ValueError("Agrégat cible manquant — renseigner target.aggregate_value ou le passer au run.")
 
-    # Croissance actuelle de la cible : valeur passée au run (prioritaire) sinon celle de la cible.
-    # On la persiste sur la cible pour l'affichage/reproductibilité.
-    if target_growth_now is not None and target is not None:
-        target.growth_now = target_growth_now
-    effective_growth_now = target_growth_now if target_growth_now is not None else (target.growth_now if target else None)
+    # Deltas société manuels : override passé au run, sinon valeurs stockées sur le run.
+    if growth_delta is not None:
+        run.growth_delta = growth_delta
+    if other_deltas is not None:
+        run.other_deltas = other_deltas
 
-    # Delta : median_now se calcule sur le MÊME agrégat que l'ancre marché (basis), le drift étant
-    # sans unité. Direct : median_now sur l'agrégat cible lui-même (on applique la médiane des pairs).
     comp_basis = (anchor.market_anchor_basis or run.aggregate) if delta_mode else run.aggregate
 
     included_multiples: list[float] = []
-    included_growths: list[float | None] = []
     included_comps: list[dict] = []
     excluded_comps: list[dict] = []
 
     for rc in run.run_comps:  # type: RunComp
-        # Recherche financière : snapshot gelé s'il existe, sinon fetch live
         snap: CompSnapshot | None = rc.comp_snapshot
         if snap is None:
             if provider is None:
@@ -96,51 +96,25 @@ def execute_run(
             try:
                 market = provider.fetch_snapshot(rc.comp.ticker)
             except Exception as exc:
-                # Ticker introuvable/invalide (ex. proposition LLM douteuse) → exclu, run préservé
                 rc.included = False
                 rc.exclusion_reason = f"[auto] acquisition impossible : {exc}"
                 session.flush()
-                excluded_comps.append({
-                    "ticker": rc.comp.ticker if rc.comp else "?",
-                    "name": rc.comp.name if rc.comp else f"comp_{rc.comp_id}",
-                    "ev": None, "market_cap": None, "net_debt": None, "revenue_ltm": None,
-                    "recurring_value": None, "aggregate_value": None, "multiple": None,
-                    "included": False, "exclusion_reason": rc.exclusion_reason,
-                    "relevance_note": rc.relevance_note,
-                })
+                excluded_comps.append(_entry(rc, None, None, comp_basis))
                 continue
             snap = insert_snapshot(session, rc.comp_id, market)
-            rc.comp_snapshot = snap  # met à jour la relation (pas seulement le FK)
+            rc.comp_snapshot = snap
             session.flush()
 
         agg_value = _pick_aggregate(snap, comp_basis)
-        multiple = None
-        if snap.ev is not None and agg_value and agg_value > 0:
-            multiple = snap.ev / agg_value
+        multiple = snap.ev / agg_value if (snap.ev is not None and agg_value and agg_value > 0) else None
+        entry = _entry(rc, snap, multiple, comp_basis, agg_value)
 
-        entry = {
-            "ticker": rc.comp.ticker if rc.comp else "?",
-            "name": rc.comp.name if rc.comp else f"comp_{rc.comp_id}",
-            "ev": snap.ev,
-            "market_cap": snap.market_cap,
-            "net_debt": snap.net_debt,
-            "revenue_ltm": snap.revenue_ltm,
-            "recurring_value": snap.recurring_value,
-            "aggregate_value": agg_value,
-            "multiple": multiple,
-            "revenue_growth": snap.revenue_growth,
-            "included": rc.included,
-            "exclusion_reason": rc.exclusion_reason,
-            "relevance_note": rc.relevance_note,
-        }
-
-        if rc.included and multiple is not None:
+        # Set PRICED = inclus + statut priced + non-proxy + multiple calculable
+        if _is_priced(rc) and multiple is not None:
             included_multiples.append(multiple)
-            included_growths.append(snap.revenue_growth)
             included_comps.append(entry)
         else:
-            if rc.included and multiple is None:
-                rc.included = False
+            if _is_priced(rc) and multiple is None:
                 rc.exclusion_reason = (rc.exclusion_reason or "") + " [auto: multiple non calculable]"
             excluded_comps.append(entry)
 
@@ -150,24 +124,25 @@ def execute_run(
             extra = (" L'agrégat comp est l'ARR : les comparables cotés n'ont pas d'ARR renseigné "
                      "(extraction P4). Ancrez plutôt sur EV/Revenue (basis=revenue).")
         raise ValueError(
-            f"Panel vide après filtrage — aucun comp avec multiple EV/{comp_basis} calculable.{extra}"
+            f"Panel vide après filtrage — aucun comp priced avec multiple EV/{comp_basis} calculable.{extra}"
         )
 
     inp = ValuationInput(
         mode=run.mode,
         comp_multiples=included_multiples,
-        comp_growths=included_growths,
         m_entry_aggregate=anchor.m_entry_aggregate if delta_mode else None,
         m_market_entry=anchor.m_market_entry if delta_mode else None,
-        target_growth_now=effective_growth_now,
-        target_growth_entry=anchor.entry_growth if delta_mode else None,
-        entry_panel_growth=anchor.entry_panel_growth if delta_mode else None,
+        growth_delta=run.growth_delta or 0.0,
         other_deltas=run.other_deltas or 0.0,
     )
     result = run_valuation(inp)
 
+    # Flags additionnels (proxy tenté dans le calcul = toujours faux ici, garde-fou)
+    flags = list(result.flags)
+    if any(rc.tier == 3 and rc.included and (rc.statut or "priced") == "priced" for rc in run.run_comps):
+        flags.append("proxy_dans_calcul — anomalie (tier 3 forcé priced)")
+
     result_ev = result.m_final * target_aggregate_value
-    # Bridge equity : on retire la dette nette de la cible (net cash → augmente l'equity)
     net_debt = (target.net_debt if target else None) or 0.0
     result_equity = result_ev - net_debt
 
@@ -183,6 +158,7 @@ def execute_run(
         net_debt=net_debt,
         result_equity=result_equity,
         comp_basis=comp_basis,
+        flags=flags,
         output_dir=output_dir,
     )
 
@@ -194,10 +170,8 @@ def execute_run(
         result_ev=result_ev,
         result_equity=result_equity,
         excel_path=excel_path,
-        beta=result.beta,
-        growth_r2=result.growth_r2,
-        growth_delta=result.growth_delta,
-        growth_gap=result.growth_gap,
+        winsor_mean=result.winsor_mean,
+        flags=flags,
     )
 
     return RunContext(
@@ -208,3 +182,25 @@ def execute_run(
         target_aggregate_value=target_aggregate_value,
         excel_path=excel_path,
     )
+
+
+def _entry(rc: RunComp, snap: CompSnapshot | None, multiple, comp_basis, agg_value=None) -> dict:
+    return {
+        "ticker": rc.comp.ticker if rc.comp else "?",
+        "name": rc.comp.name if rc.comp else f"comp_{rc.comp_id}",
+        "tier": rc.tier,
+        "statut": rc.statut,
+        "pct_ca_comparable": rc.pct_ca_comparable,
+        "ev": snap.ev if snap else None,
+        "market_cap": snap.market_cap if snap else None,
+        "net_debt": snap.net_debt if snap else None,
+        "revenue_ltm": snap.revenue_ltm if snap else None,
+        "recurring_value": snap.recurring_value if snap else None,
+        "revenue_growth": snap.revenue_growth if snap else None,
+        "aggregate_value": agg_value,
+        "multiple": multiple,
+        "included": bool(rc.included),
+        "priced": _is_priced(rc) and multiple is not None,
+        "exclusion_reason": rc.exclusion_reason,
+        "relevance_note": rc.relevance_note,
+    }

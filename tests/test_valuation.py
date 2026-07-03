@@ -1,7 +1,7 @@
-"""Tests de la méthode — base marché + ajustement de croissance (β) + deltas additifs."""
+"""Tests méthode — base marché (médiane dérive) + deltas société manuels + flags. β supprimé (Option A)."""
 import pytest
 
-from valo.method.valuation import ValuationInput, compute_multiple, run_valuation
+from valo.method.valuation import MIN_PRICED, ValuationInput, compute_multiple, run_valuation
 
 
 def test_compute_multiple_basic():
@@ -16,112 +16,72 @@ def test_compute_multiple_none():
     assert compute_multiple(ev=None, aggregate=10) is None
 
 
-# ── Base marché (sans croissance) ─────────────────────────────────────────────
+def _mults(n, val=10.0):
+    return [val] * n
 
-def test_delta_base_no_growth():
-    # median 11, drift 1.1, base = 8 × 1.1 = 8.8 ; pas de croissance → m_final 8.8
-    inp = ValuationInput(mode="A", comp_multiples=[9.0, 11.0, 12.0], comp_growths=[None, None, None],
+
+def test_delta_base_no_deltas():
+    inp = ValuationInput(mode="A", comp_multiples=[9.0, 11.0, 12.0],
                          m_entry_aggregate=8.0, m_market_entry=10.0)
     r = run_valuation(inp)
     assert r.calibrated is True
     assert r.median_now == pytest.approx(11.0)
     assert r.drift_ratio == pytest.approx(1.1)
-    assert r.beta is None
-    assert r.growth_delta == 0.0
+    assert r.base == pytest.approx(8.8)
     assert r.m_final == pytest.approx(8.8)
 
 
-def test_direct_base_no_growth():
-    inp = ValuationInput(mode="A", comp_multiples=[10.0, 12.0, 14.0], comp_growths=[None, None, None])
+def test_direct_base_no_deltas():
+    inp = ValuationInput(mode="A", comp_multiples=[10.0, 12.0, 14.0])
     r = run_valuation(inp)
     assert r.calibrated is False
     assert r.median_now == pytest.approx(12.0)
     assert r.m_final == pytest.approx(12.0)
 
 
-def test_other_deltas_additive():
-    inp = ValuationInput(mode="A", comp_multiples=[10.0], comp_growths=[None],
-                         m_entry_aggregate=8.0, m_market_entry=10.0, other_deltas=1.5)
+def test_deltas_additifs():
+    inp = ValuationInput(mode="A", comp_multiples=[10.0], m_entry_aggregate=8.0, m_market_entry=10.0,
+                         growth_delta=1.0, other_deltas=0.5)
     r = run_valuation(inp)
-    # base = 8 × (10/10) = 8 ; + autres_deltas 1.5 → 9.5
+    # base = 8 × 1.0 = 8 ; + 1.0 + 0.5 = 9.5
     assert r.m_final == pytest.approx(9.5)
+    assert r.deltas_total == pytest.approx(1.5)
+
+
+def test_floor_at_zero():
+    inp = ValuationInput(mode="A", comp_multiples=[10.0], other_deltas=-20.0)
+    r = run_valuation(inp)
+    assert r.m_final == 0.0
+    assert any("planch" in f for f in r.flags)
 
 
 def test_empty_panel_raises():
     with pytest.raises(ValueError, match="Panel vide"):
-        run_valuation(ValuationInput(mode="B", comp_multiples=[], comp_growths=[]))
+        run_valuation(ValuationInput(mode="B", comp_multiples=[]))
 
 
-# ── Ajustement de croissance (β) ──────────────────────────────────────────────
-
-def test_beta_computed_and_direct_growth_premium():
-    # Panel : multiple croît avec la croissance → β ≈ 10 (chaque +10pts = +1x)
-    # comps: growth 0.10→8x, 0.20→9x, 0.30→10x, 0.40→11x  (pente = 10 x/‰... 1x par 10pts)
-    mults = [8.0, 9.0, 10.0, 11.0]
-    grows = [0.10, 0.20, 0.30, 0.40]
-    # cible à 0.50 de croissance, médiane panel 0.25 → gap +0.25 mais clampé à la fourchette
-    inp = ValuationInput(mode="A", comp_multiples=mults, comp_growths=grows, target_growth_now=0.50)
+def test_flag_priced_faible():
+    inp = ValuationInput(mode="A", comp_multiples=_mults(5))  # < 8
     r = run_valuation(inp)
-    assert r.beta == pytest.approx(10.0, rel=0.05)
-    assert r.median_now == pytest.approx(9.5)  # médiane [8,9,10,11]
-    # gap = 0.50 - 0.25 = 0.25 ; clampé à hi = max(0.40) - médiane(0.25) = 0.15
-    assert r.growth_gap == pytest.approx(0.15, abs=1e-9)
-    # m_final = 9.5 + 10 × 0.15 = 11.0
-    assert r.m_final == pytest.approx(11.0, rel=0.02)
+    assert r.n_priced == 5
+    assert any("panel_priced_faible" in f for f in r.flags)
 
 
-def test_growth_convexity_clamp_low():
-    mults = [8.0, 9.0, 10.0, 11.0]
-    grows = [0.10, 0.20, 0.30, 0.40]
-    # cible en décroissance -0.20, bien en-dessous du panel → clampé à lo
-    inp = ValuationInput(mode="A", comp_multiples=mults, comp_growths=grows, target_growth_now=-0.20)
+def test_no_flag_when_enough_priced():
+    inp = ValuationInput(mode="A", comp_multiples=_mults(MIN_PRICED))
     r = run_valuation(inp)
-    lo = 0.10 - 0.25  # min - médiane = -0.15
-    assert r.growth_gap == pytest.approx(lo, abs=1e-9)
+    assert not any("panel_priced_faible" in f for f in r.flags)
 
 
-def test_delta_mode_growth_since_round():
-    # β ≈ 10. Depuis le tour : cible 0.45→0.50 (+0.05), panel 0.35→médiane_now 0.25 (−0.10)
-    # sur-perf = +0.05 - (-0.10) = +0.15 (dans la fourchette) → Δ = 10 × 0.15 = 1.5
-    mults = [8.0, 9.0, 10.0, 11.0]
-    grows = [0.10, 0.20, 0.30, 0.40]   # médiane now = 0.25
-    inp = ValuationInput(
-        mode="A", comp_multiples=mults, comp_growths=grows,
-        m_entry_aggregate=8.0, m_market_entry=10.0,
-        target_growth_now=0.50, target_growth_entry=0.45, entry_panel_growth=0.35,
-    )
+def test_flag_deltas_eleves():
+    # base 10, deltas +5 (>40%) → flag
+    inp = ValuationInput(mode="A", comp_multiples=_mults(9, 10.0), other_deltas=5.0)
     r = run_valuation(inp)
-    # base = 8 × (9.5/10) = 7.6 ; gap = 0.15 clampé (hi = 0.40-0.25 = 0.15) ; Δ = 1.5
-    assert r.growth_gap == pytest.approx(0.15, abs=1e-9)
-    assert r.m_final == pytest.approx(7.6 + 1.5, rel=0.02)
+    assert any("deltas_societe_eleves" in f for f in r.flags)
 
 
-def test_r2_shrinkage_noisy_panel():
-    # Panel bruité (croissance ne prédit pas le multiple) → R² faible → Δ fortement amorti.
-    mults = [10.0, 3.0, 12.0, 4.0, 11.0]
-    grows = [0.10, 0.20, 0.30, 0.40, 0.50]  # aucune relation nette
-    inp = ValuationInput(mode="A", comp_multiples=mults, comp_growths=grows, target_growth_now=0.50)
+def test_winsor_mean_present():
+    inp = ValuationInput(mode="A", comp_multiples=[5.0, 10.0, 10.0, 10.0, 50.0])
     r = run_valuation(inp)
-    assert r.growth_r2 is not None and r.growth_r2 < 0.3  # panel peu explicatif
-    # Δ = R² × β × écart : bien plus petit que β × écart brut
-    raw = (r.beta or 0) * (r.growth_gap or 0)
-    assert abs(r.growth_delta) < abs(raw)
-
-
-def test_r2_shrinkage_perfect_panel_full_effect():
-    # Relation parfaite → R² = 1 → aucun amortissement
-    mults = [8.0, 9.0, 10.0, 11.0]
-    grows = [0.10, 0.20, 0.30, 0.40]
-    inp = ValuationInput(mode="A", comp_multiples=mults, comp_growths=grows, target_growth_now=0.35)
-    r = run_valuation(inp)
-    assert r.growth_r2 == pytest.approx(1.0, abs=1e-6)
-
-
-def test_beta_omitted_few_comps():
-    # < 3 comps avec croissance → pas de β → pas de terme de croissance
-    inp = ValuationInput(mode="A", comp_multiples=[10.0, 12.0], comp_growths=[0.2, 0.3],
-                         target_growth_now=0.5)
-    r = run_valuation(inp)
-    assert r.beta is None
-    assert r.growth_delta == 0.0
-    assert r.m_final == pytest.approx(11.0)  # médiane seule
+    # la moyenne winsorisée écrête le 50 → proche de 10, bien < moyenne brute (17)
+    assert r.winsor_mean < 17.0

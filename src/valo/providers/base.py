@@ -35,12 +35,15 @@ class MarketDataProvider(ABC):
 
 @dataclass
 class CompSuggestion:
-    """Comparable coté proposé par le LLM — IDENTITÉ seulement, jamais de chiffre."""
+    """Comparable coté proposé par le LLM — IDENTITÉ + classification, jamais de chiffre financier."""
     name: str
     ticker: str
     rationale: str          # pourquoi ce comp est pertinent
     sector: str | None = None
     confidence: str = "medium"
+    tier: int | None = None                  # 1 pure-player / 2 software adjacent / 3 proxy value-chain
+    statut: str = "priced"                    # priced | proxy | outlier | distressed
+    pct_ca_comparable: float | None = None    # part du CA sur l'activité comparable (%)
 
 
 @dataclass

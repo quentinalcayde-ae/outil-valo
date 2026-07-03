@@ -65,6 +65,9 @@ class CompSuggestionOut(BaseModel):
     rationale: str
     sector: str | None = None
     confidence: str = "medium"
+    tier: int | None = None
+    statut: str = "priced"
+    pct_ca_comparable: float | None = None
 
 
 class TransactionSuggestionOut(BaseModel):
@@ -128,6 +131,9 @@ class PanelCompIn(BaseModel):
     ticker: str
     name: str | None = None
     relevance_note: str | None = None
+    tier: int | None = None
+    statut: str = "priced"
+    pct_ca_comparable: float | None = None
 
 
 class AnchorEntryIn(BaseModel):
@@ -142,7 +148,8 @@ class PanelCreate(BaseModel):
     comps: list[PanelCompIn] = Field(min_length=1)
     mode: str = Field(default="A", pattern="^[AB]$")
     aggregate: str
-    other_deltas: float = 0.0  # ajustements société additifs (marge/NRR/taille), en tours
+    growth_delta: float = 0.0  # ajustement de croissance manuel (tours)
+    other_deltas: float = 0.0  # autres deltas société (marge/NRR/taille), en tours
     anchor: AnchorEntryIn | None = None  # None → valorisation directe (sans ancre)
 
 
@@ -183,7 +190,8 @@ class AnchorProposalOut(BaseModel):
 
 class RunExecuteIn(BaseModel):
     target_aggregate_value: float | None = None  # défaut : target.aggregate_value
-    target_growth_now: float | None = None        # croissance actuelle cible (décimal) ; défaut : target.growth_now
+    growth_delta: float | None = None             # override delta croissance manuel (tours)
+    other_deltas: float | None = None             # override autres deltas société (tours)
 
 
 class RunCompOut(BaseModel):
@@ -195,6 +203,9 @@ class RunCompOut(BaseModel):
     relevance_note: str | None
     comp: CompOut
     snapshot: SnapshotOut | None = None
+    tier: int | None = None
+    statut: str = "priced"
+    pct_ca_comparable: float | None = None
 
     model_config = {"from_attributes": True}
 
@@ -206,16 +217,14 @@ class RunOut(BaseModel):
     mode: str
     aggregate: str
     median_now: float | None
-    retention_factor: float | None
-    other_deltas: float | None
-    beta: float | None
-    growth_r2: float | None
+    winsor_mean: float | None
     growth_delta: float | None
-    growth_gap: float | None
+    other_deltas: float | None
     m_final: float | None
     result_ev: float | None
     result_equity: float | None
     excel_path: str | None
+    flags: list[str] = []
     run_comps: list[RunCompOut] = []
 
     model_config = {"from_attributes": True}

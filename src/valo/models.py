@@ -123,10 +123,9 @@ class ValuationRun(Base):
     median_now: Mapped[float | None] = mapped_column(Float)
     retention_factor: Mapped[float | None] = mapped_column(Float)  # hérité (non utilisé, ancien mult.)
     other_deltas: Mapped[float | None] = mapped_column(Float)      # ajustements société additifs (tours)
-    beta: Mapped[float | None] = mapped_column(Float)              # pente panel brute (x/unité croissance)
-    growth_r2: Mapped[float | None] = mapped_column(Float)         # R² régression = confiance β (shrinkage)
-    growth_delta: Mapped[float | None] = mapped_column(Float)      # Δ croissance appliqué (tours)
-    growth_gap: Mapped[float | None] = mapped_column(Float)        # écart de croissance retenu (clampé)
+    growth_delta: Mapped[float | None] = mapped_column(Float)      # delta croissance MANUEL (tours)
+    winsor_mean: Mapped[float | None] = mapped_column(Float)       # moyenne winsorisée set priced
+    flags: Mapped[dict | None] = mapped_column(JSON)               # alertes de run (liste)
     m_final: Mapped[float | None] = mapped_column(Float)
     result_ev: Mapped[float | None] = mapped_column(Float)
     result_equity: Mapped[float | None] = mapped_column(Float)
@@ -149,6 +148,10 @@ class RunComp(Base):
     included: Mapped[bool] = mapped_column(Boolean, default=True)
     exclusion_reason: Mapped[str | None] = mapped_column(Text)
     relevance_note: Mapped[str | None] = mapped_column(Text)
+    # Classification panel (Ordre 1) : tier 1/2/3, statut priced/proxy/outlier/distressed
+    tier: Mapped[int | None] = mapped_column(Integer)
+    statut: Mapped[str] = mapped_column(String(20), default="priced")
+    pct_ca_comparable: Mapped[float | None] = mapped_column(Float)  # part du CA sur l'activité comparable
 
     run: Mapped["ValuationRun"] = relationship(back_populates="run_comps")
     comp: Mapped["Comp"] = relationship()

@@ -5,7 +5,10 @@ import { Plus, Trash2, Sparkles, ArrowRight, CheckCircle2, AlertTriangle } from 
 import { getTarget, suggest, getSuggestions, getAnchors, createPanel, resolveTickers, type SuggestResponse, type ResolveItem } from '../api'
 import { PageHeader, Card, Input, Select, Button, Spinner, ErrorBox } from '../components/ui'
 
-interface Row { ticker: string; name: string; relevance_note: string; included: boolean }
+interface Row {
+  ticker: string; name: string; relevance_note: string; included: boolean
+  tier: number | null; statut: string; pct_ca_comparable: number | null
+}
 
 export default function PanelPage() {
   const { targetId } = useParams<{ targetId: string }>()
@@ -34,7 +37,9 @@ export default function PanelPage() {
 
   const populate = (data: SuggestResponse) => {
     setRows(data.comps.map(c => ({
-      ticker: c.ticker, name: c.name, relevance_note: c.rationale, included: true,
+      ticker: c.ticker, name: c.name, relevance_note: c.rationale,
+      tier: c.tier, statut: c.statut, pct_ca_comparable: c.pct_ca_comparable,
+      included: (c.statut ?? 'priced') === 'priced' && c.tier !== 3,  // proxies exclus par défaut
     })))
     setTxs(data.transactions.map(t => ({
       label: `${t.target_company}${t.acquirer ? ` ← ${t.acquirer}` : ''}`,
@@ -64,12 +69,12 @@ export default function PanelPage() {
   }, [target?.id]) // eslint-disable-line
 
   const [mode, setMode] = useState<'A' | 'B'>('A')
+  const [growthDelta, setGrowthDelta] = useState('0')
   const [otherDeltas, setOtherDeltas] = useState('0')
   const [useAnchor, setUseAnchor] = useState(true)
   const [entryDate, setEntryDate] = useState('')
   const [entryRound, setEntryRound] = useState('')
   const [mEntry, setMEntry] = useState('')
-  const [entryGrowth, setEntryGrowth] = useState('')  // croissance cible au tour (%)
 
   // Pré-remplit l'ancre depuis la cible si elle a déjà été saisie (pas de re-saisie à chaque run)
   useEffect(() => {
@@ -80,31 +85,33 @@ export default function PanelPage() {
         setEntryDate(a.entry_date ?? '')
         setEntryRound(a.entry_round ?? '')
         setMEntry(a.m_entry_aggregate != null ? String(a.m_entry_aggregate) : '')
-        setEntryGrowth(a.entry_growth != null ? String(a.entry_growth * 100) : '')
         setUseAnchor(true)
       }
     })
   }, [target?.id]) // eslint-disable-line
 
-  const addRow = () => setRows(r => [...r, { ticker: '', name: '', relevance_note: '', included: true }])
+  const addRow = () => setRows(r => [...r, { ticker: '', name: '', relevance_note: '', included: true, tier: 1, statut: 'priced', pct_ca_comparable: null }])
   const rmRow = (i: number) => setRows(r => r.filter((_, idx) => idx !== i))
-  const upd = (i: number, f: keyof Row, v: string | boolean) =>
+  const upd = (i: number, f: keyof Row, v: string | boolean | number | null) =>
     setRows(r => r.map((row, idx) => idx === i ? { ...row, [f]: v } : row))
 
   const panelMut = useMutation({
     mutationFn: () => createPanel(id, {
-      comps: rows.filter(r => r.included && r.ticker.trim()).map(r => ({
+      // On envoie TOUS les comps (priced + proxies) avec leur statut ; le backend price selon statut/tier.
+      comps: rows.filter(r => r.ticker.trim()).map(r => ({
         ticker: r.ticker.trim().toUpperCase(), name: r.name || undefined,
         relevance_note: r.relevance_note || null,
+        tier: r.tier, statut: r.included ? (r.statut || 'priced') : 'proxy',
+        pct_ca_comparable: r.pct_ca_comparable,
       })),
       mode,
       aggregate: target!.valuation_aggregate,
+      growth_delta: parseFloat(growthDelta) || 0,
       other_deltas: parseFloat(otherDeltas) || 0,
       anchor: useAnchor && entryDate && mEntry
         ? {
             entry_date: entryDate, entry_round: entryRound || null,
             m_entry_aggregate: parseFloat(mEntry),
-            entry_growth: entryGrowth ? parseFloat(entryGrowth) / 100 : null,
           }
         : null,
     }),
@@ -166,8 +173,15 @@ export default function PanelPage() {
                       </p>
                     )}
                   </div>
-                  <input value={r.relevance_note} onChange={e => upd(i, 'relevance_note', e.target.value)}
-                    className="rounded border border-slate-200 px-2 py-1 text-sm text-slate-600 mt-0.5" />
+                  <div>
+                    <input value={r.relevance_note} onChange={e => upd(i, 'relevance_note', e.target.value)}
+                      className="w-full rounded border border-slate-200 px-2 py-1 text-sm text-slate-600 mt-0.5" />
+                    <p className="mt-0.5 text-[11px] text-slate-400">
+                      {r.tier ? `Tier ${r.tier}` : 'Tier ?'} · {r.statut}
+                      {r.pct_ca_comparable != null ? ` · ${r.pct_ca_comparable.toFixed(0)}% du CA comparable` : ''}
+                      {(r.statut !== 'priced' || r.tier === 3) ? ' — proxy (hors calcul par défaut)' : ''}
+                    </p>
+                  </div>
                   <button onClick={() => rmRow(i)} className="mt-1.5 text-slate-300 hover:text-red-500"><Trash2 size={15} /></button>
                 </div>
               )
@@ -214,12 +228,10 @@ export default function PanelPage() {
               <Input label="Libellé tour" value={entryRound} onChange={e => setEntryRound(e.target.value)} placeholder="Série B" />
               <Input label={`M_entry (EV/${target.valuation_aggregate} au tour) *`} type="number" step="any"
                 value={mEntry} onChange={e => setMEntry(e.target.value)} placeholder="8.0" />
-              <Input label="Croissance cible au tour (% YoY)" type="number" step="any"
-                value={entryGrowth} onChange={e => setEntryGrowth(e.target.value)} placeholder="45" />
             </div>
             <p className="text-xs text-slate-400 mt-2">
-              La médiane marché au tour (m_market_entry) et la croissance du panel au tour seront
-              calculées automatiquement à l'étape suivante (base trailing yfinance).
+              La médiane marché au tour (m_market_entry) sera calculée automatiquement à l'étape suivante
+              (médiane du set priced à la date du tour).
             </p>
           </>
         ) : (
@@ -228,14 +240,19 @@ export default function PanelPage() {
             ajustement de croissance vs le panel (si dispo), sans référence à un tour d'entrée.
           </p>
         )}
-        <div className="grid grid-cols-2 gap-3 mt-3">
+        <div className="grid grid-cols-3 gap-3 mt-3">
           <Select label="Mode" value={mode} onChange={e => setMode(e.target.value as 'A' | 'B')}>
             <option value="A">MODE A — amorçage</option>
             <option value="B">MODE B — trimestriel</option>
           </Select>
-          <Input label="Autres deltas société (tours : marge/NRR/taille)" type="number" step="any"
+          <Input label="Delta croissance (tours)" type="number" step="any"
+            value={growthDelta} onChange={e => setGrowthDelta(e.target.value)} placeholder="0" />
+          <Input label="Autres deltas (marge/NRR/taille, tours)" type="number" step="any"
             value={otherDeltas} onChange={e => setOtherDeltas(e.target.value)} placeholder="0" />
         </div>
+        <p className="text-[11px] text-slate-400 mt-1">
+          Deltas société additifs et justifiés (β OLS supprimé) — modifiables aussi au calcul. Un flag alerte si trop élevés.
+        </p>
       </Card>
 
       {panelMut.error && <ErrorBox message="Erreur lors de la création du panel. Vérifiez qu'au moins un comparable est inclus (et l'ancre si activée)." />}

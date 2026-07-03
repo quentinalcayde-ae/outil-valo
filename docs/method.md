@@ -55,6 +55,13 @@ Feuille **Valo** : toutes les cellules clés sont des formules Excel (pas de val
 - **Cas ARR** : pas d'ARR historique → override manuel du multiple (`source=manual`, `basis=arr`) ou ancre sur EV/Revenue. Le ratio de dérive étant sans unité, le mark reste valide.
 - Valeur toujours **surchargeable** (ancre gelée à vie).
 
+## Panel en tiers & ajustements (révision juillet 2026)
+
+- **Tiers** : chaque comp a `tier` (1 pure-player / 2 software adjacent / 3 proxy value-chain) + `statut`. **Seuls les priced (Tier 1/2) entrent dans la médiane** ; les tier-3/proxies sont conservés pour la traçabilité mais exclus du calcul (garde-fou en dur `tier==3 → proxy`). Cf. `service._is_priced`.
+- **β OLS supprimé (Option A)** : une régression EV/Rev~croissance sur un panel de dérive hétérogène à faible N est du bruit (β négatif observé). L'ajustement de croissance est désormais un **delta additif manuel** (`run.growth_delta`), justifié, avec `other_deltas` (marge/NRR/taille). Pas de cap dur : un **flag** alerte si `|Σ deltas| > 40 %` de la base.
+- **Robustesse dérive** : médiane **+ moyenne winsorisée** du set priced ; flags `panel_priced_faible (<8)`, `derive_portee_par_nom_unique`, `proxy_dans_calcul`.
+- `M_final = max(0 ; base + growth_delta + other_deltas)`. Croissance des comps = yfinance LTM (affichée, contexte).
+
 ## Deux régimes : calibration delta vs comparables directs
 
 - **Calibration par delta** (ancre présente) : `M_final = M_entry × (median_now / m_market_entry) × rétention`.

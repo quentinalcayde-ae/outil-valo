@@ -27,11 +27,13 @@ export default function RunResult() {
   const [proposal, setProposal] = useState<AnchorProposal | null>(null)
   const [manualAnchor, setManualAnchor] = useState('')
   const [targetAgg, setTargetAgg] = useState('')
-  const [growthNow, setGrowthNow] = useState('')
+  const [growthDelta, setGrowthDelta] = useState('')
+  const [otherDeltas, setOtherDeltas] = useState('')
 
   useEffect(() => {
-    if (target?.growth_now != null) setGrowthNow(String(target.growth_now * 100))
-  }, [target?.growth_now])
+    if (run?.growth_delta != null) setGrowthDelta(String(run.growth_delta))
+    if (run?.other_deltas != null) setOtherDeltas(String(run.other_deltas))
+  }, [run?.growth_delta, run?.other_deltas])
 
   const patchMut = useMutation({
     mutationFn: () => patchRunComps(id, run!.run_comps.map(rc => ({
@@ -55,7 +57,8 @@ export default function RunResult() {
     mutationFn: () => executeRun(
       id,
       targetAgg ? parseFloat(targetAgg) * 1e6 : undefined,
-      growthNow ? parseFloat(growthNow) / 100 : undefined,
+      growthDelta !== '' ? parseFloat(growthDelta) : undefined,
+      otherDeltas !== '' ? parseFloat(otherDeltas) : undefined,
     ),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['run', id] }),
   })
@@ -79,20 +82,17 @@ export default function RunResult() {
             <Metric label="EV cible" value={fmtBn(run.result_ev) + ' €'} />
             <Metric label="Equity (− dette nette)" value={fmtBn(run.result_equity) + ' €'} highlight />
           </div>
-          {/* Décomposition de l'ajustement de croissance */}
+          {/* Décomposition : médiane + winsor + deltas société */}
           <div className="mt-3 text-xs text-slate-600 bg-white/60 rounded-md px-3 py-2">
-            {run.growth_delta ? (
-              <>Ajustement de croissance : <b>{run.growth_delta > 0 ? '+' : ''}{run.growth_delta.toFixed(2)}x</b>
-                {' '}(β = {run.beta?.toFixed(2)}x/unité · confiance R² = {run.growth_r2 != null ? (run.growth_r2 * 100).toFixed(0) + '%' : '—'} · écart retenu {run.growth_gap != null ? (run.growth_gap * 100).toFixed(0) + ' pts' : '—'})
-                {run.other_deltas ? ` · autres deltas ${run.other_deltas > 0 ? '+' : ''}${run.other_deltas.toFixed(2)}x` : ''}</>
-            ) : (
-              <span className="text-amber-600">
-                Ajustement de croissance non appliqué — {run.beta == null
-                  ? 'pente β non calculable (comps sans croissance ou < 3 comps)'
-                  : 'croissance de la cible manquante (renseignez-la et relancez)'}.
-              </span>
-            )}
+            Médiane priced <b>{fmtM(run.median_now)}</b> · moy. winsorisée {fmtM(run.winsor_mean)}
+            {' · '}delta croissance {run.growth_delta ? `${run.growth_delta > 0 ? '+' : ''}${run.growth_delta.toFixed(2)}x` : '0'}
+            {' · '}autres deltas {run.other_deltas ? `${run.other_deltas > 0 ? '+' : ''}${run.other_deltas.toFixed(2)}x` : '0'}
           </div>
+          {run.flags && run.flags.length > 0 && (
+            <div className="mt-2 rounded-md bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-700">
+              {run.flags.map((f, i) => <div key={i}>⚠ {f}</div>)}
+            </div>
+          )}
           {run.excel_path && (
             <a href={`/api/runs/${run.id}/excel`}
                className="mt-3 inline-flex items-center gap-1.5 rounded-md bg-brand px-3 py-1.5 text-sm font-medium text-white hover:bg-blue-900">
@@ -255,17 +255,24 @@ export default function RunResult() {
                 className="mt-1 block w-36 rounded-md border border-slate-300 px-3 py-1.5 text-sm" />
             </label>
             <label className="block">
-              <span className="text-sm font-medium text-slate-700">Croissance actuelle (% YoY)</span>
-              <input type="number" step="any" value={growthNow} onChange={e => setGrowthNow(e.target.value)}
-                placeholder="45"
-                className="mt-1 block w-36 rounded-md border border-slate-300 px-3 py-1.5 text-sm" />
+              <span className="text-sm font-medium text-slate-700">Delta croissance (tours)</span>
+              <input type="number" step="any" value={growthDelta} onChange={e => setGrowthDelta(e.target.value)}
+                placeholder="0"
+                className="mt-1 block w-32 rounded-md border border-slate-300 px-3 py-1.5 text-sm" />
+            </label>
+            <label className="block">
+              <span className="text-sm font-medium text-slate-700">Autres deltas (tours)</span>
+              <input type="number" step="any" value={otherDeltas} onChange={e => setOtherDeltas(e.target.value)}
+                placeholder="0"
+                className="mt-1 block w-32 rounded-md border border-slate-300 px-3 py-1.5 text-sm" />
             </label>
             <Button onClick={() => execMut.mutate()} disabled={execMut.isPending || (hasAnchorRow && !anchored)}>
               <Play size={14} /> {execMut.isPending ? 'Calcul…' : 'Calculer la valo'}
             </Button>
           </div>
           <p className="text-xs text-slate-400 mt-1">
-            La croissance actuelle alimente l'ajustement de croissance (β) vs le panel. Sans elle, le terme est omis.
+            Deltas société additifs et justifiés (marge/NRR/taille/croissance) — la croissance LTM des comps est
+            visible dans le panel pour t'aider. Un flag alerte si les deltas sont importants.
           </p>
           {hasAnchorRow && !anchored && <p className="text-xs text-amber-600 mt-2">Ancrez d'abord la médiane marché ci-dessus.</p>}
           {!hasAnchorRow && <p className="text-xs text-slate-500 mt-2">Valorisation directe (sans ancre) : la médiane des comparables sera appliquée telle quelle.</p>}

@@ -32,7 +32,9 @@ def _parse_date(v) -> date | None:
 COMPS_FORMAT_SYSTEM = """Tu reçois l'analyse d'un autre expert listant des sociétés cotées comparables.
 Extrais-la en JSON STRICT, sans rien inventer ni ajouter de société absente du texte.
 Conserve les tickers EXACTEMENT tels quels. Fusionne toute nuance/limite dans "rationale".
-Format : {"comps":[{"name":str,"ticker":str,"rationale":str,"sector":str,"confidence":"high"|"medium"|"low"}]}
+Conserve tier (1/2/3), statut (priced/proxy/outlier/distressed) et pct_ca_activite_comparable (%).
+Format : {"comps":[{"name":str,"ticker":str,"rationale":str,"sector":str,"confidence":"high"|"medium"|"low",
+"tier":1|2|3,"statut":"priced"|"proxy"|"outlier"|"distressed","pct_ca_activite_comparable":number}]}
 Si le texte ne contient aucune société exploitable : {"comps":[]}."""
 
 TRANSACTIONS_FORMAT_SYSTEM = """Tu reçois l'analyse d'un expert listant des transactions M&A comparables.
@@ -76,12 +78,20 @@ class OpenAIProvider(LLMProvider):
             ticker = (c.get("ticker") or "").strip().upper()
             if not ticker:
                 continue
+            tier = c.get("tier")
+            statut = (c.get("statut") or "priced").strip().lower()
+            # Garde-fou EN DUR : tier 3 → toujours proxy, jamais priced (indépendant du LLM)
+            if tier == 3 and statut == "priced":
+                statut = "proxy"
             out.append(CompSuggestion(
                 name=c.get("name") or ticker,
                 ticker=ticker,
                 rationale=c.get("rationale") or "",
                 sector=c.get("sector") or ctx.sector,
                 confidence=c.get("confidence") or "medium",
+                tier=tier if tier in (1, 2, 3) else None,
+                statut=statut if statut in ("priced", "proxy", "outlier", "distressed") else "priced",
+                pct_ca_comparable=c.get("pct_ca_activite_comparable"),
             ))
         # Garantit l'inclusion des tickers imposés par l'utilisateur
         known = {c.ticker for c in out}

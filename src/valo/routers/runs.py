@@ -70,6 +70,7 @@ def create_panel(target_id: int, body: PanelCreate, session: Session = Depends(g
         target_id=target_id,
         mode=body.mode,
         aggregate=body.aggregate,
+        growth_delta=body.growth_delta,
         other_deltas=body.other_deltas,
     )
 
@@ -81,8 +82,15 @@ def create_panel(target_id: int, body: PanelCreate, session: Session = Depends(g
                 session, name=pc.name or ticker, ticker=ticker,
                 currency="USD", is_recurring=target.is_recurring,
             )
-        add_run_comp(session, run_id=run.id, comp_id=comp.id,
-                     included=True, relevance_note=pc.relevance_note)
+        # Seuls les priced (Tier 1/2) entrent dans le calcul ; proxies (tier 3) inclus=False.
+        is_priced = (pc.statut or "priced") == "priced" and pc.tier != 3
+        add_run_comp(
+            session, run_id=run.id, comp_id=comp.id,
+            included=is_priced, relevance_note=pc.relevance_note,
+            tier=pc.tier, statut=pc.statut,
+            pct_ca_comparable=pc.pct_ca_comparable,
+            exclusion_reason=None if is_priced else "proxy / tier 3 — hors calcul",
+        )
 
     session.flush()
     return _enrich_run(get_run(session, run.id))
@@ -194,7 +202,8 @@ def execute(
         ctx = execute_run(
             session, run_id,
             target_aggregate_value=body.target_aggregate_value,
-            target_growth_now=body.target_growth_now,
+            growth_delta=body.growth_delta,
+            other_deltas=body.other_deltas,
             provider=provider,
         )
     except ValueError as exc:
@@ -214,6 +223,9 @@ def _enrich_run(run) -> dict:
             "relevance_note": rc.relevance_note,
             "comp": rc.comp,
             "snapshot": rc.comp_snapshot,
+            "tier": rc.tier,
+            "statut": rc.statut,
+            "pct_ca_comparable": rc.pct_ca_comparable,
         })
     return {
         "id": run.id,
@@ -222,15 +234,13 @@ def _enrich_run(run) -> dict:
         "mode": run.mode,
         "aggregate": run.aggregate,
         "median_now": run.median_now,
-        "retention_factor": run.retention_factor,
-        "other_deltas": run.other_deltas,
-        "beta": run.beta,
-        "growth_r2": run.growth_r2,
+        "winsor_mean": run.winsor_mean,
         "growth_delta": run.growth_delta,
-        "growth_gap": run.growth_gap,
+        "other_deltas": run.other_deltas,
         "m_final": run.m_final,
         "result_ev": run.result_ev,
         "result_equity": run.result_equity,
         "excel_path": run.excel_path,
+        "flags": run.flags or [],
         "run_comps": run_comps_out,
     }

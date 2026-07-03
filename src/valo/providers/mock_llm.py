@@ -55,7 +55,8 @@ class MockLLMProvider(LLMProvider):
         rows = _SECTOR_COMPS[_key(ctx)]
         out = [
             CompSuggestion(name=name, ticker=ticker, rationale=rationale,
-                           sector=ctx.sector, confidence="medium")
+                           sector=ctx.sector, confidence="medium",
+                           tier=1, statut="priced", pct_ca_comparable=90.0)
             for name, ticker, rationale in rows[:n]
         ]
         # Intègre d'éventuels tickers imposés par l'utilisateur
@@ -63,7 +64,8 @@ class MockLLMProvider(LLMProvider):
         for t in ctx.extra_tickers:
             if t.upper() not in known:
                 out.append(CompSuggestion(name=t.upper(), ticker=t.upper(),
-                                          rationale="Ajouté par l'utilisateur", confidence="high"))
+                                          rationale="Ajouté par l'utilisateur", confidence="high",
+                                          tier=1, statut="priced"))
         return out
 
     def suggest_transactions(self, ctx: TargetContext, n: int = 5) -> list[TransactionSuggestion]:

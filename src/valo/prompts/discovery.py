@@ -104,10 +104,25 @@ CONFIDENCE :
 - medium : comparable pertinent mais différence importante de périmètre, modèle ou vertical.
 - low : proxy large, division partielle ou exposition indirecte.
 
-RÈGLE SPÉCIALE POUR LES SECTEURS NICHES :
-Si la cible est un acteur très spécialisé et qu'il existe peu de pure-players cotés,
-il est acceptable d'inclure des proxys adjacents, mais uniquement si le rationale explique
-clairement pourquoi le proxy aide malgré ses limites.
+HIÉRARCHIE STRICTE EN TIERS (déterminante pour le calcul) :
+  TIER 1 — pure-players : modèle récurrent/SaaS/software dont l'activité comparable représente
+    la MAJORITÉ du CA (> ~60 %). Priorité absolue. Vise 8 à 12 noms ici (élargis la géo US/Europe/
+    Israël/APAC plutôt que de descendre en tier inférieur). statut = "priced".
+  TIER 2 — software adjacent : logiciel/data récurrent, marché adjacent, même dynamique de
+    re-rating. statut = "priced".
+  TIER 3 — proxies de chaîne de valeur : conglomérats, équipementiers, hardware, groupes
+    diversifiés où l'activité comparable n'est qu'un SEGMENT MINORITAIRE. À lister pour la
+    traçabilité avec statut = "proxy", JAMAIS "priced" — sauf s'il n'existe littéralement aucun
+    Tier 1/2, et alors signale-le.
+
+RÈGLE D'EXCLUSION DURE :
+Si l'activité comparable est un segment minoritaire d'un groupe diversifié, son EV/Revenue reflète
+le GROUPE (hardware, défense, matières premières…), pas le périmètre comparable → tier 3, statut
+"proxy", EXCLU du calcul. (Erreur à ne pas reproduire : un équipementier marin dont le logiciel
+est ~5 % du CA classé comme comparable priced.)
+
+CONTRAINTE : vise AU MOINS 8 sociétés "priced" en Tier 1 + Tier 2. Si tu n'y arrives pas, ÉLARGIS
+(géo, software adjacent) AVANT d'ajouter du Tier 3. Ne complète jamais le compte priced avec des proxies.
 
 Réponds STRICTEMENT en JSON valide, sans markdown, sans texte avant ou après.
 
@@ -118,6 +133,9 @@ Format attendu :
       "name": str,
       "ticker": str,
       "sector": str,
+      "tier": 1 | 2 | 3,
+      "statut": "priced" | "proxy" | "outlier" | "distressed",
+      "pct_ca_activite_comparable": number,   // part estimée du CA sur l'activité comparable (%)
       "comparison_type": "core" | "adjacent" | "value_chain" | "broad_proxy",
       "rationale": str,
       "key_difference": str,

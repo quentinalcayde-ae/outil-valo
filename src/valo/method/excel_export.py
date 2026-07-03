@@ -11,6 +11,7 @@ CLR_HEADER = "1F3864"
 CLR_SECTION = "D6E4F7"
 CLR_EXCL = "F2F2F2"
 CLR_RESULT = "E2EFDA"
+CLR_FLAG = "FCE4D6"
 
 
 def _header(ws, row, col, value, bold=True):
@@ -27,7 +28,7 @@ def _fmt_m(v):
 
 def export_excel(
     run: ValuationRun,
-    anchor: TargetAnchor,
+    anchor: TargetAnchor | None,
     result: ValuationResult,
     included_comps: list[dict],
     excluded_comps: list[dict],
@@ -36,18 +37,16 @@ def export_excel(
     net_debt: float = 0.0,
     result_equity: float | None = None,
     comp_basis: str | None = None,
+    flags: list[str] | None = None,
     output_dir: str = "exports",
 ) -> str:
     wb = Workbook()
     median_ref = _build_comps_sheet(wb, run, included_comps, excluded_comps, comp_basis or run.aggregate)
     _build_synthese_sheet(wb, run, anchor, result, target_aggregate_value, median_ref,
-                          comp_basis or run.aggregate, net_debt)
-
-    # Ordonne : Synthèse en premier
+                          comp_basis or run.aggregate, net_debt, flags or [])
     wb.move_sheet("Synthèse", -(len(wb.sheetnames) - 1))
     if "Sheet" in wb.sheetnames:
         del wb["Sheet"]
-
     filename = f"valo_{run.target_id}_run{run.id}_{run.run_date.strftime('%Y%m%d')}.xlsx"
     path = str(Path(output_dir) / filename)
     wb.save(path)
@@ -55,67 +54,72 @@ def export_excel(
 
 
 def _build_comps_sheet(wb, run, included, excluded, agg) -> str:
-    """Tableau de comps classique. Retourne la réf cellule de la médiane (ex. 'Comparables!G7')."""
+    """Tableau de comps : priced en haut, proxies/exclus grisés en bas. Retourne la réf médiane."""
     ws = wb.create_sheet("Comparables")
-    widths = {"A": 10, "B": 22, "C": 14, "D": 13, "E": 14, "F": 14, "G": 11, "H": 10, "I": 32}
+    widths = {"A": 10, "B": 22, "C": 6, "D": 9, "E": 11, "F": 13, "G": 13, "H": 13, "I": 11, "J": 30}
     for col, w in widths.items():
         ws.column_dimensions[col].width = w
-    headers = ["Ticker", "Nom", "Market Cap", "Net Debt", "EV", f"Agrégat ({agg})", f"EV/{agg}", "Statut", "Note"]
+
+    headers = ["Ticker", "Nom", "Tier", "% CA", "Croiss. LTM", "Market Cap", "Net Debt", "EV",
+               f"EV/{agg}", "Note / statut"]
     for c, h in enumerate(headers, 1):
         _header(ws, 1, c, h)
 
-    row = 2
-    for c in included:
+    def write_comp(row, c, greyed):
         ws.cell(row=row, column=1, value=c["ticker"])
         ws.cell(row=row, column=2, value=c["name"])
-        ws.cell(row=row, column=3, value=c["market_cap"]).number_format = "#,##0"
-        ws.cell(row=row, column=4, value=c["net_debt"]).number_format = "#,##0"
-        # EV = market_cap + net_debt (formule)
-        ws.cell(row=row, column=5, value=f"=C{row}+D{row}").number_format = "#,##0"
-        ws.cell(row=row, column=6, value=c["aggregate_value"]).number_format = "#,##0"
-        # EV/agrégat (formule)
-        ws.cell(row=row, column=7, value=f'=IF(F{row}>0,E{row}/F{row},"N/A")').number_format = '0.00"x"'
-        ws.cell(row=row, column=8, value="Inclus")
-        ws.cell(row=row, column=9, value=c.get("relevance_note") or "")
-        row += 1
+        ws.cell(row=row, column=3, value=c.get("tier"))
+        pct = c.get("pct_ca_comparable")
+        ws.cell(row=row, column=4, value=(pct / 100 if pct is not None else None)).number_format = "0%"
+        g = c.get("revenue_growth")
+        ws.cell(row=row, column=5, value=g).number_format = "0.0%"
+        ws.cell(row=row, column=6, value=c.get("market_cap")).number_format = "#,##0"
+        ws.cell(row=row, column=7, value=c.get("net_debt")).number_format = "#,##0"
+        if greyed:
+            ws.cell(row=row, column=8, value=c.get("ev")).number_format = "#,##0"
+            ws.cell(row=row, column=9, value=_fmt_m(c.get("multiple")))
+        else:
+            ws.cell(row=row, column=8, value=f"=F{row}+G{row}").number_format = "#,##0"  # EV = mc + net debt
+            agg = c.get("aggregate_value") or 0
+            cell = ws.cell(row=row, column=9, value=(f"=H{row}/{agg}" if agg > 0 else "N/A"))
+            cell.number_format = '0.00"x"'
+        ws.cell(row=row, column=10, value=(c.get("relevance_note") or c.get("exclusion_reason") or c.get("statut") or ""))
+        if greyed:
+            for cc in range(1, 11):
+                ws.cell(row=row, column=cc).fill = PatternFill("solid", fgColor=CLR_EXCL)
+                ws.cell(row=row, column=cc).font = Font(color="888888")
 
-    first, last = 2, row - 1
+    row = 2
+    first = row
+    for c in included:
+        write_comp(row, c, greyed=False)
+        row += 1
+    last = row - 1
     median_row = row
-    ws.cell(row=median_row, column=6, value="MÉDIANE").font = Font(bold=True)
-    med_cell = ws.cell(row=median_row, column=7, value=f"=MEDIAN(G{first}:G{last})")
-    med_cell.number_format = '0.00"x"'
-    med_cell.font = Font(bold=True)
-    for c in range(1, 10):
+    ws.cell(row=median_row, column=8, value="MÉDIANE priced").font = Font(bold=True)
+    med = ws.cell(row=median_row, column=9, value=f"=MEDIAN(I{first}:I{last})" if included else 0)
+    med.number_format = '0.00"x"'
+    med.font = Font(bold=True)
+    for c in range(1, 11):
         ws.cell(row=median_row, column=c).fill = PatternFill("solid", fgColor=CLR_SECTION)
     row = median_row + 2
 
     if excluded:
-        ws.cell(row=row, column=1, value="— Exclus (hors médiane) —").font = Font(italic=True, color="888888")
+        ws.cell(row=row, column=1, value="— Proxies / exclus (hors calcul) —").font = Font(italic=True, color="888888")
         row += 1
         for c in excluded:
-            ws.cell(row=row, column=1, value=c["ticker"])
-            ws.cell(row=row, column=2, value=c["name"])
-            ws.cell(row=row, column=3, value=c["market_cap"]).number_format = "#,##0"
-            ws.cell(row=row, column=4, value=c["net_debt"]).number_format = "#,##0"
-            ws.cell(row=row, column=5, value=c["ev"]).number_format = "#,##0"
-            ws.cell(row=row, column=6, value=c["aggregate_value"]).number_format = "#,##0"
-            ws.cell(row=row, column=7, value=_fmt_m(c["multiple"]))
-            ws.cell(row=row, column=8, value="Exclu")
-            ws.cell(row=row, column=9, value=c.get("exclusion_reason") or "")
-            for cc in range(1, 10):
-                ws.cell(row=row, column=cc).fill = PatternFill("solid", fgColor=CLR_EXCL)
-                ws.cell(row=row, column=cc).font = Font(color="888888")
+            write_comp(row, c, greyed=True)
             row += 1
 
-    return f"Comparables!G{median_row}"
+    return f"Comparables!I{median_row}"
 
 
 def _build_synthese_sheet(wb, run, anchor, result, target_aggregate_value, median_ref: str,
-                          comp_basis: str, net_debt: float):
+                          comp_basis: str, net_debt: float, flags: list[str]):
     ws = wb.create_sheet("Synthèse")
-    ws.column_dimensions["A"].width = 42
+    ws.column_dimensions["A"].width = 44
     ws.column_dimensions["B"].width = 18
-    ws.column_dimensions["C"].width = 36
+    ws.column_dimensions["C"].width = 40
 
     def line(r, label, value=None, formula=None, fmt=None, note=None, bold=False, fill=None):
         ws.cell(row=r, column=1, value=label)
@@ -134,52 +138,40 @@ def _build_synthese_sheet(wb, run, anchor, result, target_aggregate_value, media
     _header(ws, 1, 2, "Valeur")
     _header(ws, 1, 3, "Note")
 
-    beta_txt = result.beta if result.beta is not None else "n/a"
-    gap_txt = result.growth_gap if result.growth_gap is not None else "n/a"
-    if result.beta is not None:
-        r2_pct = f"{result.growth_r2 * 100:.0f}%" if result.growth_r2 is not None else "n/a"
-        growth_note = (f"base trailing — Δ = R² × β × écart (R² confiance = {r2_pct} ; "
-                       "amortit les panels bruités)")
-    else:
-        growth_note = "croissance non exploitable (β indisponible, <3 comps) → terme omis"
+    gd = run.growth_delta or 0.0
+    od = run.other_deltas or 0.0
 
     if result.calibrated:
         line(2, "── Ancre tour d'entrée ──", fill=CLR_SECTION, bold=True)
         line(3, "Date du tour", str(anchor.entry_date))
-        line(4, "Tour", anchor.entry_round or "")
-        line(5, f"M_entry (EV/{run.aggregate} au tour)", anchor.m_entry_aggregate, fmt='0.00"x"')
-        line(6, "M_market_entry (médiane marché au tour)", anchor.m_market_entry, fmt='0.00"x"',
+        line(4, f"M_entry (EV/{run.aggregate} au tour)", anchor.m_entry_aggregate, fmt='0.00"x"')
+        line(5, "M_market_entry (médiane marché au tour)", anchor.m_market_entry, fmt='0.00"x"',
              note=f"basis={anchor.market_anchor_basis or '?'} · {anchor.m_market_entry_source}")
-
-        line(8, "── Base marché ──", fill=CLR_SECTION, bold=True)
-        line(9, f"Median_now (panel, EV/{comp_basis})", formula=f"={median_ref}", fmt='0.00"x"')
-        line(10, "Dérive marché (median_now / m_market_entry)", formula="=B9/B6", fmt="0.000")
-        line(11, "Base = M_entry × dérive", formula="=B5*B10", fmt='0.00"x"')
-
-        line(13, "── Ajustement de croissance ──", fill=CLR_SECTION, bold=True)
-        line(14, "β (pente panel, x par unité de croissance)", beta_txt, fmt='0.000"x"', note=growth_note)
-        line(15, "Écart de croissance retenu (Δ, clampé)", gap_txt, fmt="0.0%")
-        line(16, "Δ croissance = β × écart", result.growth_delta, fmt='0.00"x"')
-        line(17, "Autres deltas société (marge/NRR/taille)", result.other_deltas, fmt='0.00"x"')
-
-        line(19, "── Résultat ──", fill=CLR_SECTION, bold=True)
-        line(20, f"M_final (EV/{run.aggregate} retenu)", formula="=MAX(0,B11+B16+B17)", fmt='0.00"x"',
-             note=f"max(0 ; base + Δcroissance + autres deltas) [MODE {run.mode}]", bold=True, fill=CLR_RESULT)
-        ev_row, method_note = 21, "Méthode : IPEV — maintien du delta + ajustement de croissance (β)."
+        line(7, "── Base marché ──", fill=CLR_SECTION, bold=True)
+        line(8, f"Median_now priced (EV/{comp_basis})", formula=f"={median_ref}", fmt='0.00"x"',
+             note=f"{result.n_priced} comps priced")
+        line(9, "Moyenne winsorisée (contrôle)", result.winsor_mean, fmt='0.00"x"')
+        line(10, "Dérive marché (median_now / m_market_entry)", formula="=B8/B5", fmt="0.000")
+        line(11, "Base = M_entry × dérive", formula="=B4*B10", fmt='0.00"x"')
+        line(13, "── Deltas société (additifs, manuels) ──", fill=CLR_SECTION, bold=True)
+        line(14, "Delta croissance (manuel)", gd, fmt='0.00"x"')
+        line(15, "Autres deltas (marge/NRR/taille)", od, fmt='0.00"x"')
+        line(17, "── Résultat ──", fill=CLR_SECTION, bold=True)
+        line(18, f"M_final (EV/{run.aggregate})", formula="=MAX(0,B11+B14+B15)", fmt='0.00"x"',
+             note="max(0 ; base + deltas société)", bold=True, fill=CLR_RESULT)
+        ev_row = 19
     else:
         line(2, "── Base marché (comparables directs) ──", fill=CLR_SECTION, bold=True)
-        line(3, f"Median_now (panel, EV/{comp_basis})", formula=f"={median_ref}", fmt='0.00"x"')
-
-        line(5, "── Ajustement de croissance ──", fill=CLR_SECTION, bold=True)
-        line(6, "β (pente panel, x par unité de croissance)", beta_txt, fmt='0.000"x"', note=growth_note)
-        line(7, "Écart de croissance retenu (Δ, clampé)", gap_txt, fmt="0.0%")
-        line(8, "Δ croissance = β × écart", result.growth_delta, fmt='0.00"x"')
-        line(9, "Autres deltas société", result.other_deltas, fmt='0.00"x"')
-
-        line(11, "── Résultat ──", fill=CLR_SECTION, bold=True)
-        line(12, f"M_final (EV/{run.aggregate} retenu)", formula="=MAX(0,B3+B8+B9)", fmt='0.00"x"',
-             note="max(0 ; médiane + Δcroissance + autres deltas) — valo directe", bold=True, fill=CLR_RESULT)
-        ev_row, method_note = 13, "Méthode : valorisation directe par comparables (sans ancre) + ajustement de croissance."
+        line(3, f"Median_now priced (EV/{comp_basis})", formula=f"={median_ref}", fmt='0.00"x"',
+             note=f"{result.n_priced} comps priced")
+        line(4, "Moyenne winsorisée (contrôle)", result.winsor_mean, fmt='0.00"x"')
+        line(6, "── Deltas société (additifs, manuels) ──", fill=CLR_SECTION, bold=True)
+        line(7, "Delta croissance (manuel)", gd, fmt='0.00"x"')
+        line(8, "Autres deltas (marge/NRR/taille)", od, fmt='0.00"x"')
+        line(10, "── Résultat ──", fill=CLR_SECTION, bold=True)
+        line(11, f"M_final (EV/{run.aggregate})", formula="=MAX(0,B3+B7+B8)", fmt='0.00"x"',
+             note="max(0 ; médiane + deltas société)", bold=True, fill=CLR_RESULT)
+        ev_row = 12
 
     mfinal_ref = f"B{ev_row - 1}"
     line(ev_row, f"Agrégat cible ({run.aggregate})", target_aggregate_value, fmt="#,##0")
@@ -189,7 +181,13 @@ def _build_synthese_sheet(wb, run, anchor, result, target_aggregate_value, media
     line(ev_row + 3, "Valeur des fonds propres (equity)", formula=f"=B{ev_row + 1}-B{ev_row + 2}",
          fmt="#,##0", note="Equity = EV − dette nette", bold=True, fill=CLR_RESULT)
 
-    footer = ev_row + 5
-    ws.cell(row=footer, column=1, value=method_note).font = Font(italic=True, color="888888")
-    ws.cell(row=footer + 1, column=1,
-            value=f"Run #{run.id} · MODE {run.mode} · {run.run_date.strftime('%Y-%m-%d %H:%M')}").font = Font(italic=True, color="888888")
+    r = ev_row + 5
+    if flags:
+        line(r, "── Alertes ──", fill=CLR_FLAG, bold=True)
+        r += 1
+        for f in flags:
+            ws.cell(row=r, column=1, value=f"⚠ {f}").font = Font(color="C55A11")
+            r += 1
+        r += 1
+    ws.cell(row=r, column=1, value="Méthode : IPEV — médiane de dérive (set priced) + deltas société manuels.").font = Font(italic=True, color="888888")
+    ws.cell(row=r + 1, column=1, value=f"Run #{run.id} · MODE {run.mode} · {run.run_date.strftime('%Y-%m-%d %H:%M')}").font = Font(italic=True, color="888888")

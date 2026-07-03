@@ -25,6 +25,9 @@ export interface CompSuggestion {
   rationale: string
   sector: string | null
   confidence: string
+  tier: number | null
+  statut: string
+  pct_ca_comparable: number | null
 }
 
 export interface TransactionSuggestion {
@@ -76,6 +79,9 @@ export interface RunComp {
   relevance_note: string | null
   comp: Comp
   snapshot: Snapshot | null
+  tier: number | null
+  statut: string
+  pct_ca_comparable: number | null
 }
 
 export interface Run {
@@ -85,16 +91,14 @@ export interface Run {
   mode: 'A' | 'B'
   aggregate: string
   median_now: number | null
-  retention_factor: number | null
-  other_deltas: number | null
-  beta: number | null
-  growth_r2: number | null
+  winsor_mean: number | null
   growth_delta: number | null
-  growth_gap: number | null
+  other_deltas: number | null
   m_final: number | null
   result_ev: number | null
   result_equity: number | null
   excel_path: string | null
+  flags: string[]
   run_comps: RunComp[]
 }
 
@@ -175,11 +179,15 @@ export const getAnchors = (targetId: number) =>
 // ── Runs : panel → anchor → execute ─────────────────────────────────────────────
 
 export interface PanelBody {
-  comps: { ticker: string; name?: string; relevance_note?: string | null }[]
+  comps: {
+    ticker: string; name?: string; relevance_note?: string | null
+    tier?: number | null; statut?: string; pct_ca_comparable?: number | null
+  }[]
   mode: 'A' | 'B'
   aggregate: string
+  growth_delta: number
   other_deltas: number
-  anchor: { entry_date: string; entry_round?: string | null; m_entry_aggregate: number; entry_growth?: number | null } | null
+  anchor: { entry_date: string; entry_round?: string | null; m_entry_aggregate: number } | null
 }
 
 export const createPanel = (targetId: number, body: PanelBody) =>
@@ -189,10 +197,11 @@ export const patchRunComps = (runId: number, comps: object[]) =>
   http.patch<Run>(`/runs/${runId}/comps`, { comps }).then(r => r.data)
 export const computeAnchor = (runId: number, body: { manual_value?: number; basis?: string }) =>
   http.post<AnchorProposal>(`/runs/${runId}/anchor`, body).then(r => r.data)
-export const executeRun = (runId: number, targetAggregateValue?: number, targetGrowthNow?: number) =>
+export const executeRun = (runId: number, targetAggregateValue?: number, growthDelta?: number, otherDeltas?: number) =>
   http.post<Run>(`/runs/${runId}/execute`, {
     target_aggregate_value: targetAggregateValue ?? null,
-    target_growth_now: targetGrowthNow ?? null,
+    growth_delta: growthDelta ?? null,
+    other_deltas: otherDeltas ?? null,
   }).then(r => r.data)
 
 // ── Transactions ──────────────────────────────────────────────────────────────
