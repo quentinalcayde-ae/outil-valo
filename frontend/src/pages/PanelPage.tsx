@@ -251,7 +251,9 @@ export default function PanelPage() {
             value={otherDeltas} onChange={e => setOtherDeltas(e.target.value)} placeholder="0" />
         </div>
         <p className="text-[11px] text-slate-400 mt-1">
-          Deltas société additifs et justifiés (β OLS supprimé) — modifiables aussi au calcul. Un flag alerte si trop élevés.
+          En <b>tours de multiple</b> ajoutés à la médiane du panel. <b>Delta croissance</b> = prime/décote
+          car la cible croît + ou − vite que le panel · <b>Autres deltas</b> = marge, NRR, taille…
+          Ex. médiane 6x + croissance 2x − marges 0,5x → 7,5x. Laisse 0 pour la pure médiane (modifiable aussi au calcul).
         </p>
       </Card>
 

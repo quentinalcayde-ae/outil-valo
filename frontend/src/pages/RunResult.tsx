@@ -270,10 +270,11 @@ export default function RunResult() {
               <Play size={14} /> {execMut.isPending ? 'Calcul…' : 'Calculer la valo'}
             </Button>
           </div>
-          <p className="text-xs text-slate-400 mt-1">
-            Deltas société additifs et justifiés (marge/NRR/taille/croissance) — la croissance LTM des comps est
-            visible dans le panel pour t'aider. Un flag alerte si les deltas sont importants.
-          </p>
+          <div className="text-xs text-slate-500 mt-1 space-y-0.5">
+            <p><b>En tours de multiple</b> (points d'EV/{run.aggregate.toUpperCase()}), ajoutés à la base = médiane du panel{hasAnchorRow ? ' × dérive' : ''}.</p>
+            <p><b>Delta croissance</b> : prime/décote car la cible croît + ou − vite que le panel (croissance LTM des comps visible ci-dessous). <b>Autres deltas</b> : marge, rétention (NRR), taille, concentration…</p>
+            <p>Ex. base 6x, croissance +2x, marges −0,5x → M_final 7,5x. Laisse <b>0</b> pour la pure médiane. Un flag alerte si les deltas sont importants.</p>
+          </div>
           {hasAnchorRow && !anchored && <p className="text-xs text-amber-600 mt-2">Ancrez d'abord la médiane marché ci-dessus.</p>}
           {!hasAnchorRow && <p className="text-xs text-slate-500 mt-2">Valorisation directe (sans ancre) : la médiane des comparables sera appliquée telle quelle.</p>}
           {execMut.error && <ErrorBox message={apiError(execMut.error, "Erreur au calcul. Vérifiez l'ancre et le panel.")} />}
