@@ -185,7 +185,6 @@ export interface PanelBody {
   }[]
   mode: 'A' | 'B'
   aggregate: string
-  growth_delta: number
   other_deltas: number
   anchor: { entry_date: string; entry_round?: string | null; m_entry_aggregate: number } | null
 }
@@ -197,10 +196,10 @@ export const patchRunComps = (runId: number, comps: object[]) =>
   http.patch<Run>(`/runs/${runId}/comps`, { comps }).then(r => r.data)
 export const computeAnchor = (runId: number, body: { manual_value?: number; basis?: string }) =>
   http.post<AnchorProposal>(`/runs/${runId}/anchor`, body).then(r => r.data)
-export const executeRun = (runId: number, targetAggregateValue?: number, growthDelta?: number, otherDeltas?: number) =>
+export const executeRun = (runId: number, targetAggregateValue?: number, targetGrowthNow?: number, otherDeltas?: number) =>
   http.post<Run>(`/runs/${runId}/execute`, {
     target_aggregate_value: targetAggregateValue ?? null,
-    growth_delta: growthDelta ?? null,
+    target_growth_now: targetGrowthNow ?? null,
     other_deltas: otherDeltas ?? null,
   }).then(r => r.data)
 

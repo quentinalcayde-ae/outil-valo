@@ -49,7 +49,7 @@ def execute_run(
     session: Session,
     run_id: int,
     target_aggregate_value: float | None = None,
-    growth_delta: float | None = None,
+    target_growth_now: float | None = None,
     other_deltas: float | None = None,
     provider: MarketDataProvider | None = None,
     output_dir: str = "exports",
@@ -74,15 +74,18 @@ def execute_run(
     if not target_aggregate_value or target_aggregate_value <= 0:
         raise ValueError("Agrégat cible manquant — renseigner target.aggregate_value ou le passer au run.")
 
-    # Deltas société manuels : override passé au run, sinon valeurs stockées sur le run.
-    if growth_delta is not None:
-        run.growth_delta = growth_delta
+    # Croissance actuelle de la cible (pour le delta croissance auto) : override sinon valeur stockée.
+    if target_growth_now is not None and target is not None:
+        target.growth_now = target_growth_now
+    effective_growth_now = target_growth_now if target_growth_now is not None else (target.growth_now if target else None)
+    # Autres deltas (marge/NRR/taille) : manuels, override sinon valeur du run.
     if other_deltas is not None:
         run.other_deltas = other_deltas
 
     comp_basis = (anchor.market_anchor_basis or run.aggregate) if delta_mode else run.aggregate
 
     included_multiples: list[float] = []
+    included_growths: list[float | None] = []
     included_comps: list[dict] = []
     excluded_comps: list[dict] = []
 
@@ -112,6 +115,7 @@ def execute_run(
         # Set PRICED = inclus + statut priced + non-proxy + multiple calculable
         if _is_priced(rc) and multiple is not None:
             included_multiples.append(multiple)
+            included_growths.append(snap.revenue_growth)
             included_comps.append(entry)
         else:
             if _is_priced(rc) and multiple is None:
@@ -130,12 +134,14 @@ def execute_run(
     inp = ValuationInput(
         mode=run.mode,
         comp_multiples=included_multiples,
+        comp_growths=included_growths,
         m_entry_aggregate=anchor.m_entry_aggregate if delta_mode else None,
         m_market_entry=anchor.m_market_entry if delta_mode else None,
-        growth_delta=run.growth_delta or 0.0,
+        target_growth_now=effective_growth_now,
         other_deltas=run.other_deltas or 0.0,
     )
     result = run_valuation(inp)
+    run.growth_delta = result.growth_delta  # delta croissance calculé automatiquement
 
     # Flags additionnels (proxy tenté dans le calcul = toujours faux ici, garde-fou)
     flags = list(result.flags)

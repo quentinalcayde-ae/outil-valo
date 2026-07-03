@@ -69,7 +69,6 @@ export default function PanelPage() {
   }, [target?.id]) // eslint-disable-line
 
   const [mode, setMode] = useState<'A' | 'B'>('A')
-  const [growthDelta, setGrowthDelta] = useState('0')
   const [otherDeltas, setOtherDeltas] = useState('0')
   const [useAnchor, setUseAnchor] = useState(true)
   const [entryDate, setEntryDate] = useState('')
@@ -106,7 +105,6 @@ export default function PanelPage() {
       })),
       mode,
       aggregate: target!.valuation_aggregate,
-      growth_delta: parseFloat(growthDelta) || 0,
       other_deltas: parseFloat(otherDeltas) || 0,
       anchor: useAnchor && entryDate && mEntry
         ? {
@@ -240,20 +238,18 @@ export default function PanelPage() {
             ajustement de croissance vs le panel (si dispo), sans référence à un tour d'entrée.
           </p>
         )}
-        <div className="grid grid-cols-3 gap-3 mt-3">
+        <div className="grid grid-cols-2 gap-3 mt-3">
           <Select label="Mode" value={mode} onChange={e => setMode(e.target.value as 'A' | 'B')}>
             <option value="A">MODE A — amorçage</option>
             <option value="B">MODE B — trimestriel</option>
           </Select>
-          <Input label="Delta croissance (tours)" type="number" step="any"
-            value={growthDelta} onChange={e => setGrowthDelta(e.target.value)} placeholder="0" />
           <Input label="Autres deltas (marge/NRR/taille, tours)" type="number" step="any"
             value={otherDeltas} onChange={e => setOtherDeltas(e.target.value)} placeholder="0" />
         </div>
         <p className="text-[11px] text-slate-400 mt-1">
-          En <b>tours de multiple</b> ajoutés à la médiane du panel. <b>Delta croissance</b> = prime/décote
-          car la cible croît + ou − vite que le panel · <b>Autres deltas</b> = marge, NRR, taille…
-          Ex. médiane 6x + croissance 2x − marges 0,5x → 7,5x. Laisse 0 pour la pure médiane (modifiable aussi au calcul).
+          Le <b>delta croissance est calculé automatiquement</b> à l'étape suivante (tu saisiras la croissance
+          de la cible ; il est dérivé du prix d'un point de croissance dans le panel). Les <b>autres deltas</b>
+          (marge/NRR/taille, en tours de multiple) restent manuels.
         </p>
       </Card>
 

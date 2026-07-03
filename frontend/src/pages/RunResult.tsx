@@ -27,13 +27,15 @@ export default function RunResult() {
   const [proposal, setProposal] = useState<AnchorProposal | null>(null)
   const [manualAnchor, setManualAnchor] = useState('')
   const [targetAgg, setTargetAgg] = useState('')
-  const [growthDelta, setGrowthDelta] = useState('')
+  const [growthNow, setGrowthNow] = useState('')
   const [otherDeltas, setOtherDeltas] = useState('')
 
   useEffect(() => {
-    if (run?.growth_delta != null) setGrowthDelta(String(run.growth_delta))
+    if (target?.growth_now != null) setGrowthNow(String(target.growth_now * 100))
+  }, [target?.growth_now])
+  useEffect(() => {
     if (run?.other_deltas != null) setOtherDeltas(String(run.other_deltas))
-  }, [run?.growth_delta, run?.other_deltas])
+  }, [run?.other_deltas])
 
   const patchMut = useMutation({
     mutationFn: () => patchRunComps(id, run!.run_comps.map(rc => ({
@@ -57,7 +59,7 @@ export default function RunResult() {
     mutationFn: () => executeRun(
       id,
       targetAgg ? parseFloat(targetAgg) * 1e6 : undefined,
-      growthDelta !== '' ? parseFloat(growthDelta) : undefined,
+      growthNow !== '' ? parseFloat(growthNow) / 100 : undefined,
       otherDeltas !== '' ? parseFloat(otherDeltas) : undefined,
     ),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['run', id] }),
@@ -255,9 +257,9 @@ export default function RunResult() {
                 className="mt-1 block w-36 rounded-md border border-slate-300 px-3 py-1.5 text-sm" />
             </label>
             <label className="block">
-              <span className="text-sm font-medium text-slate-700">Delta croissance (tours)</span>
-              <input type="number" step="any" value={growthDelta} onChange={e => setGrowthDelta(e.target.value)}
-                placeholder="0"
+              <span className="text-sm font-medium text-slate-700">Croissance actuelle (% YoY)</span>
+              <input type="number" step="any" value={growthNow} onChange={e => setGrowthNow(e.target.value)}
+                placeholder="45"
                 className="mt-1 block w-32 rounded-md border border-slate-300 px-3 py-1.5 text-sm" />
             </label>
             <label className="block">
@@ -271,9 +273,8 @@ export default function RunResult() {
             </Button>
           </div>
           <div className="text-xs text-slate-500 mt-1 space-y-0.5">
-            <p><b>En tours de multiple</b> (points d'EV/{run.aggregate.toUpperCase()}), ajoutés à la base = médiane du panel{hasAnchorRow ? ' × dérive' : ''}.</p>
-            <p><b>Delta croissance</b> : prime/décote car la cible croît + ou − vite que le panel (croissance LTM des comps visible ci-dessous). <b>Autres deltas</b> : marge, rétention (NRR), taille, concentration…</p>
-            <p>Ex. base 6x, croissance +2x, marges −0,5x → M_final 7,5x. Laisse <b>0</b> pour la pure médiane. Un flag alerte si les deltas sont importants.</p>
+            <p><b>Croissance actuelle</b> : tu saisis le % de croissance de la cible → le <b>delta croissance est calculé automatiquement</b> (prix d'un point de croissance dans le panel × écart vs médiane du panel, plafonné).</p>
+            <p><b>Autres deltas</b> (en tours de multiple) : marge, rétention (NRR), taille — manuels, faute de données panel fiables pour les automatiser. Laisse 0 sinon.</p>
           </div>
           {hasAnchorRow && !anchored && <p className="text-xs text-amber-600 mt-2">Ancrez d'abord la médiane marché ci-dessus.</p>}
           {!hasAnchorRow && <p className="text-xs text-slate-500 mt-2">Valorisation directe (sans ancre) : la médiane des comparables sera appliquée telle quelle.</p>}

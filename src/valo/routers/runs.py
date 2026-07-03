@@ -70,7 +70,6 @@ def create_panel(target_id: int, body: PanelCreate, session: Session = Depends(g
         target_id=target_id,
         mode=body.mode,
         aggregate=body.aggregate,
-        growth_delta=body.growth_delta,
         other_deltas=body.other_deltas,
     )
 
@@ -202,7 +201,7 @@ def execute(
         ctx = execute_run(
             session, run_id,
             target_aggregate_value=body.target_aggregate_value,
-            growth_delta=body.growth_delta,
+            target_growth_now=body.target_growth_now,
             other_deltas=body.other_deltas,
             provider=provider,
         )

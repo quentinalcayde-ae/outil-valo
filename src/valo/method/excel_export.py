@@ -26,6 +26,14 @@ def _fmt_m(v):
     return f"{v:.2f}x" if v is not None else "N/A"
 
 
+def _growth_note(result) -> str:
+    if result.price_per_pt_growth is None:
+        return "croissance auto omise (données panel insuffisantes)"
+    gap = (result.growth_gap or 0) * 100
+    return (f"prix ≈ {result.price_per_pt_growth:.1f}x/unité × écart {gap:+.0f} pts "
+            f"(médiane panel {(result.median_growth or 0) * 100:.0f} %)")
+
+
 def export_excel(
     run: ValuationRun,
     anchor: TargetAnchor | None,
@@ -153,9 +161,9 @@ def _build_synthese_sheet(wb, run, anchor, result, target_aggregate_value, media
         line(9, "Moyenne winsorisée (contrôle)", result.winsor_mean, fmt='0.00"x"')
         line(10, "Dérive marché (median_now / m_market_entry)", formula="=B8/B5", fmt="0.000")
         line(11, "Base = M_entry × dérive", formula="=B4*B10", fmt='0.00"x"')
-        line(13, "── Deltas société (additifs, manuels) ──", fill=CLR_SECTION, bold=True)
-        line(14, "Delta croissance (manuel)", gd, fmt='0.00"x"')
-        line(15, "Autres deltas (marge/NRR/taille)", od, fmt='0.00"x"')
+        line(13, "── Deltas société ──", fill=CLR_SECTION, bold=True)
+        line(14, "Delta croissance (auto)", gd, fmt='0.00"x"', note=_growth_note(result))
+        line(15, "Autres deltas (marge/NRR/taille, manuel)", od, fmt='0.00"x"')
         line(17, "── Résultat ──", fill=CLR_SECTION, bold=True)
         line(18, f"M_final (EV/{run.aggregate})", formula="=MAX(0,B11+B14+B15)", fmt='0.00"x"',
              note="max(0 ; base + deltas société)", bold=True, fill=CLR_RESULT)
@@ -165,9 +173,9 @@ def _build_synthese_sheet(wb, run, anchor, result, target_aggregate_value, media
         line(3, f"Median_now priced (EV/{comp_basis})", formula=f"={median_ref}", fmt='0.00"x"',
              note=f"{result.n_priced} comps priced")
         line(4, "Moyenne winsorisée (contrôle)", result.winsor_mean, fmt='0.00"x"')
-        line(6, "── Deltas société (additifs, manuels) ──", fill=CLR_SECTION, bold=True)
-        line(7, "Delta croissance (manuel)", gd, fmt='0.00"x"')
-        line(8, "Autres deltas (marge/NRR/taille)", od, fmt='0.00"x"')
+        line(6, "── Deltas société ──", fill=CLR_SECTION, bold=True)
+        line(7, "Delta croissance (auto)", gd, fmt='0.00"x"', note=_growth_note(result))
+        line(8, "Autres deltas (marge/NRR/taille, manuel)", od, fmt='0.00"x"')
         line(10, "── Résultat ──", fill=CLR_SECTION, bold=True)
         line(11, f"M_final (EV/{run.aggregate})", formula="=MAX(0,B3+B7+B8)", fmt='0.00"x"',
              note="max(0 ; médiane + deltas société)", bold=True, fill=CLR_RESULT)

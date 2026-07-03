@@ -148,8 +148,7 @@ class PanelCreate(BaseModel):
     comps: list[PanelCompIn] = Field(min_length=1)
     mode: str = Field(default="A", pattern="^[AB]$")
     aggregate: str
-    growth_delta: float = 0.0  # ajustement de croissance manuel (tours)
-    other_deltas: float = 0.0  # autres deltas société (marge/NRR/taille), en tours
+    other_deltas: float = 0.0  # marge/NRR/taille (manuel) ; le delta croissance est calculé auto
     anchor: AnchorEntryIn | None = None  # None → valorisation directe (sans ancre)
 
 
@@ -190,8 +189,8 @@ class AnchorProposalOut(BaseModel):
 
 class RunExecuteIn(BaseModel):
     target_aggregate_value: float | None = None  # défaut : target.aggregate_value
-    growth_delta: float | None = None             # override delta croissance manuel (tours)
-    other_deltas: float | None = None             # override autres deltas société (tours)
+    target_growth_now: float | None = None        # croissance actuelle cible (décimal) → delta croissance auto
+    other_deltas: float | None = None             # marge/NRR/taille (manuel)
 
 
 class RunCompOut(BaseModel):
